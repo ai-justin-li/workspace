@@ -11,14 +11,23 @@ A Python CLI program that crafts personalized reservation confirmation text mess
   - `your two 60-minute Swedish massages`
   - `your 90-minute couples massage`
   - `your 60-minute hot stone couples massage`
-- Optional **requested therapist**:
+- Optional **requested therapist** selected from a list:
   - Therapist name is appended to the message text ("... with Jane Doe")
   - Calendar title becomes `Jane Doe - Appt: Client Name`
-  - User can choose a Google Calendar color for the event (Lavender, Peacock, Tomato, etc.)
+  - Color is assigned automatically:
+    - Couples massage → Sage
+    - Specific therapist → Their configured default color
+    - No therapist requested → Peacock (default blue)
 - Renders the full confirmation message for easy copy/paste into any SMS app
 - Creates Google Calendar event
 - Event includes full confirmation text in description, correct start/end times (America/New_York timezone), and spa location
 - `--dry-run` mode to preview everything without creating a calendar event
+- **Strong conflict prevention**:
+  - Enforces maximum concurrent *therapist usage* = number of therapists (currently 4)
+  - A regular massage consumes 1 slot. A couples massage consumes **2 slots**.
+  - "2 couples massages" = 4 therapist slots.
+  - Prevents the same therapist from having overlapping bookings
+  - Clear warnings + confirmation required to override
 - Supports `.env` configuration for Google credentials paths
 
 ## Template
@@ -76,7 +85,7 @@ During the run you will be prompted for:
 - Number of massages (e.g. 1 or 2 when booking for friends)
 - Is this a couples massage? (y/n)
 - Massage type (deep tissue, Swedish, hot stone, etc. — optional)
-- Requested therapist (optional — e.g. "Jane Doe")
+- Requested therapist (selected from list: Yenni, Julie, Amy, Tracey, or none)
 - Appointment date (`YYYYMMDD`)
 - Appointment time (24-hour `HHMM`)
 - Duration in minutes (per massage/session)
@@ -139,7 +148,7 @@ Time: 4:00 PM on April 18, 2025 (60 minutes)
 [DRY RUN] No calendar event created.
 ```
 
-### Example 3: With requested therapist (color selection enabled)
+### Example 3: With requested therapist (automatic color assignment)
 
 ```
 SoCo Spa Reservation Confirmation
@@ -148,27 +157,49 @@ Customer name: Maria Lopez
 Number of massages (default 1): 1
 Is this a couples massage? (y/n, default n): n
 Massage type (e.g. deep tissue, Swedish, hot stone - optional): deep tissue
-Requested therapist (optional - leave blank if none): Jane Doe
+Requested therapist:
+  1. Yenni
+  2. Julie
+  3. Amy
+  4. Tracey
+  0. No specific therapist
+Select number: 1
 Appointment date (YYYYMMDD): 20250422
 Appointment time in 24-hour format (HHMM, e.g. 1430): 1100
 Duration in minutes (e.g. 60): 60
 
 Crafted confirmation message (copy this to send via your phone/SMS app):
 --------------------------------------------------
-Hi Maria Lopez, thank you for choosing SoCo Spa! Here is your reservation confirmation for 11:00 AM on April 22, 2025 for a 60-minute deep tissue massage with Jane Doe. 
+Hi Maria Lopez, thank you for choosing SoCo Spa! Here is your reservation confirmation for 11:00 AM on April 22, 2025 for a 60-minute deep tissue massage with Yenni. 
 
 Our location is: 115 Willbrook Blvd., Suite E, Pawleys Island, SC 29585. We are looking forward to seeing you!
 --------------------------------------------------
 
-Calendar event title will be: Jane Doe - Appt: Maria Lopez
-Requested therapist: Jane Doe
-Details: a 60-minute deep tissue massage with Jane Doe
+Calendar event title will be: Yenni - Appt: Maria Lopez
+Requested therapist: Yenni
+Calendar color: Blueberry (ID 9)
+Details: a 60-minute deep tissue massage with Yenni
 Time: 11:00 AM on April 22, 2025 (60 minutes)
-
-(At this point the program would show the color selection menu because a therapist was requested)
 
 [DRY RUN] No calendar event created.
 ```
+
+## Conflict Prevention (Important Rules)
+
+The tool performs **thorough conflict checking** before allowing any booking:
+
+**Rules enforced:**
+- Maximum concurrent appointments at any time = number of therapists (currently 4).
+- A specific therapist cannot have two overlapping appointments.
+
+**How it works:**
+- The tool queries your Google Calendar for the exact time window.
+- It counts how many appointments are already scheduled during that period.
+- If a specific therapist was requested, it also checks whether that therapist is already booked.
+- If either the global capacity would be exceeded **or** the chosen therapist has a conflict, a clear warning is shown.
+- You must explicitly type `y` to proceed anyway.
+
+The calendar is the source of truth. These checks exist to prevent double bookings.
 
 ## Calendar Event
 
@@ -177,7 +208,11 @@ Created events have:
 - **Title**:
   - No therapist requested: `Appt: Maria Lopez`
   - Therapist requested: `Jane Doe - Appt: Maria Lopez`
-- **Color** (optional): When a therapist is requested, you can choose one of 11 Google Calendar colors (Lavender, Sage, Peacock, Tomato, etc.)
+- **Color** (automatic):
+  - Couples massage → Sage
+  - Specific therapist → Their default color (configured in therapists.json)
+  - No therapist requested → Peacock (default blue)
+  - Manual overrides can be done directly in Google Calendar if needed
 - **Location**: Spa address (from template)
 - **Description**: Full confirmation message text (includes therapist when specified)
 - **Time**: Correct start/end in America/New_York timezone
@@ -205,10 +240,32 @@ All can be set in `.env` or the shell environment (only needed for Google):
 - **Time shows wrong**: Input uses 24-hour time; output is rendered in America/New_York.
 - **No browser opens for login**: Run on a machine with a browser, or set up the token.json on another machine and copy it over.
 
+## GUI Version (Recommended for Daily Use)
+
+A graphical interface is available using Streamlit. It provides the same logic as the CLI with a much friendlier experience for the receptionists.
+
+### Running the GUI
+
+```bash
+pip install -r requirements.txt
+streamlit run spa_booking_gui.py
+```
+
+The GUI includes:
+- Easy form inputs + optional notes for therapists
+- Live preview of the message + calendar title + assigned color
+- **Automatic conflict analysis** after submission (only flags real problems: capacity exceeded or same-therapist overlap)
+- Different-therapist overlaps are shown as informational only
+- Quick Availability View (next 5 hours of bookings)
+- Creates one calendar event **per massage requested** (e.g., 3 massages → 3 events)
+- Light description in calendar events (customer + therapist + notes). The full SMS message is shown in the GUI for copy-paste.
+
 ## Files
 
 - `spa_reservation.py` — Main CLI tool
-- `template` — Message template (edit as needed)
+- `spa_booking_gui.py` — Streamlit GUI (recommended)
+- `therapists.json` — List of therapists and their default colors
+- `template` — Message template
 - `requirements.txt` — Python dependencies
 - `.env.example` — Template for secrets
 

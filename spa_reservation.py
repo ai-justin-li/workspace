@@ -5,8 +5,11 @@ SoCo Spa Reservation Confirmation Tool
 - Reads the message template from ./template
 - Collects reservation details from user input
 - Crafts a personalized confirmation message (copy and send manually via phone)
-- Supports optional requested therapist (included in message + title)
-- If therapist requested: title becomes "TherapistName - Appt: Client", and user can pick a calendar color
+- Supports optional requested therapist selected from a list (included in message + title)
+- Calendar color is assigned automatically:
+    - Couples massage → Sage
+    - Specific therapist → Their default color
+    - No therapist requested → Peacock (default blue)
 - Creates a corresponding event in Google Calendar
 
 Usage:
@@ -43,20 +46,8 @@ GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json
 GOOGLE_TOKEN_FILE = os.getenv("GOOGLE_TOKEN_FILE", "token.json")
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "primary")
 
-# Google Calendar color options (shown only when a therapist is requested)
-COLOR_CHOICES = [
-    ("1", "Lavender"),
-    ("2", "Sage"),
-    ("3", "Grape"),
-    ("4", "Flamingo"),
-    ("5", "Banana"),
-    ("6", "Tangerine"),
-    ("7", "Peacock"),
-    ("8", "Graphite"),
-    ("9", "Blueberry"),
-    ("10", "Basil"),
-    ("11", "Tomato"),
-]
+# Path to therapists configuration
+THERAPISTS_FILE = Path(__file__).parent / "therapists.json"
 
 
 def get_calendar_service():
@@ -106,8 +97,10 @@ def create_calendar_event(
 ) -> dict:
     """Create a Google Calendar event and return the created event resource.
 
-    If therapist is provided, the title becomes "Jane Doe - Appt: Client Name".
-    color_id is a Google Calendar colorId (e.g. "7" for Peacock).
+    Colors are assigned automatically based on business rules:
+    - Couples → Sage
+    - Specific therapist → Their configured default color
+    - No therapist → Peacock (default)
     """
     service = get_calendar_service()
 
@@ -222,20 +215,145 @@ def build_event_summary(name: str, therapist: str = "") -> str:
     return f"Appt: {name}"
 
 
-def prompt_color_selection() -> str | None:
-    """Show color menu and return a valid colorId (only called when therapist requested)."""
-    print("\nTherapist requested — select a color for this calendar event:")
-    for num, name in COLOR_CHOICES:
-        print(f"  {num}. {name}")
-    print("  (Press Enter for no special color)")
-    choice = input("Color number: ").strip()
-    if not choice:
-        return None
-    for num, _ in COLOR_CHOICES:
-        if choice == num:
-            return num
-    print("  Invalid choice — no color will be applied.")
-    return None
+def load_therapists() -> list[dict]:
+    """Load the list of therapists from therapists.json."""
+    if not THERAPISTS_FILE.exists():
+        raise FileNotFoundError(
+            f"Therapists file not found: {THERAPISTS_FILE}\n"
+            "Please create therapists.json with the list of available therapists."
+        )
+    import json
+    with open(THERAPISTS_FILE, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def get_color_name(color_id: str) -> str:
+    """Return a human-friendly name for a Google Calendar color ID."""
+    color_names = {
+        "1": "Lavender",
+        "2": "Sage",
+        "3": "Grape",
+        "4": "Flamingo",
+        "5": "Banana",
+        "6": "Tangerine",
+        "7": "Peacock",
+        "8": "Graphite",
+        "9": "Blueberry",
+        "10": "Basil",
+        "11": "Tomato",
+    }
+    return color_names.get(color_id, f"Color {color_id}")
+
+
+def analyze_booking_conflicts(start_dt, end_dt, requested_therapist_name=None, num_massages=1, is_couples=False):
+    """
+    Thoroughly analyze potential conflicts for a new booking.
+
+    Rules:
+    - Maximum concurrent therapist usage <= number of therapists (global capacity)
+    - Same therapist cannot have overlapping appointments
+
+    Therapist usage calculation:
+    - Regular massage: 1 slot per massage
+    - Couples massage: 2 slots per massage
+
+    So a booking for 2 couples massages consumes 4 therapist slots.
+
+    Overlaps with *different* therapists are acceptable as long as total capacity is not exceeded.
+
+    Returns a rich analysis dict.
+    """
+    therapists = load_therapists()
+    max_capacity = len(therapists)
+
+    # Calculate how many therapist slots this booking will consume
+    slots_per_massage = 2 if is_couples else 1
+    booking_slots = num_massages * slots_per_massage
+
+    try:
+        service = get_calendar_service()
+        events_result = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=start_dt.isoformat(),
+            timeMax=end_dt.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+
+        events = events_result.get('items', [])
+        conflicts = []
+
+        for event in events:
+            summary = event.get('summary', 'Untitled Event')
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            html_link = event.get('htmlLink', '')
+
+            conflicts.append({
+                'summary': summary,
+                'start': start,
+                'htmlLink': html_link
+            })
+
+        current_concurrent = len(conflicts)
+        capacity_violation = (current_concurrent + booking_slots) > max_capacity
+
+        therapist_conflict = False
+        conflicting_therapist = None
+
+        if requested_therapist_name:
+            for event in conflicts:
+                summary = event['summary']
+                if requested_therapist_name.lower() in summary.lower():
+                    therapist_conflict = True
+                    conflicting_therapist = requested_therapist_name
+                    break
+
+        # Categorize issues
+        hard_conflict = capacity_violation or therapist_conflict
+
+        messages = []
+        if capacity_violation:
+            messages.append(
+                f"Capacity violation: This booking uses {booking_slots} therapist slots. "
+                f"Current load: {current_concurrent}/{max_capacity}."
+            )
+        if therapist_conflict:
+            messages.append(
+                f"Therapist conflict: {requested_therapist_name} already has an appointment at this time."
+            )
+        if not hard_conflict and conflicts:
+            messages.append(
+                f"{len(conflicts)} other appointment(s) overlap this time slot (different therapists - OK)."
+            )
+
+        return {
+            'conflicts': conflicts,
+            'capacity_violation': capacity_violation,
+            'therapist_conflict': therapist_conflict,
+            'hard_conflict': hard_conflict,
+            'current_concurrent': current_concurrent,
+            'max_capacity': max_capacity,
+            'booking_slots': booking_slots,
+            'conflicting_therapist': conflicting_therapist,
+            'message': " | ".join(messages) if messages else "No conflicts detected.",
+            'is_clear': not hard_conflict
+        }
+
+    except Exception as e:
+        print(f"\nWarning: Unable to check calendar for conflicts ({e}).")
+        print("Proceeding without conflict check.\n")
+        return {
+            'conflicts': [],
+            'capacity_violation': False,
+            'therapist_conflict': False,
+            'hard_conflict': False,
+            'current_concurrent': 0,
+            'max_capacity': max_capacity,
+            'booking_slots': booking_slots,
+            'conflicting_therapist': None,
+            'message': "Conflict check failed - please verify manually.",
+            'is_clear': True
+        }
 
 
 def collect_reservation_details() -> dict:
@@ -259,7 +377,26 @@ def collect_reservation_details() -> dict:
 
     mtype = input("Massage type (e.g. deep tissue, Swedish, hot stone - optional): ").strip()
 
-    therapist = input("Requested therapist (optional - leave blank if none): ").strip()
+    # Therapist selection (loaded from therapists.json)
+    therapists = load_therapists()
+    print("\nRequested therapist:")
+    for i, t in enumerate(therapists, 1):
+        print(f"  {i}. {t['name']}")
+    print("  0. No specific therapist")
+
+    while True:
+        choice = input("Select number: ").strip()
+        if choice == "0" or choice == "":
+            therapist = None
+            break
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(therapists):
+                therapist = therapists[idx]
+                break
+        except ValueError:
+            pass
+        print("  Invalid selection. Please choose a number from the list.")
 
     date_input = input("Appointment date (YYYYMMDD): ").strip()
     time_input = input("Appointment time in 24-hour format (HHMM, e.g. 1430): ").strip()
@@ -282,9 +419,12 @@ def collect_reservation_details() -> dict:
     display_time = format_display_time(start_dt)
     display_duration = f"{duration_minutes}-minute"
 
+    # Therapist name for message (if selected)
+    therapist_name = therapist["name"] if therapist else ""
+
     # Build grammatically correct confirmation phrase
     confirmation_details = build_confirmation_details(
-        num_massages, is_couples, mtype, display_duration, therapist
+        num_massages, is_couples, mtype, display_duration, therapist_name
     )
 
     # Load and render template
@@ -311,7 +451,8 @@ def collect_reservation_details() -> dict:
         "num_massages": num_massages,
         "is_couples": is_couples,
         "massage_type": mtype,
-        "therapist": therapist,
+        "therapist": therapist,           # dict or None
+        "therapist_name": therapist_name, # string for display
         "confirmation_details": confirmation_details,
     }
 
@@ -333,8 +474,9 @@ def main():
         print(f"Error collecting inputs: {e}", file=sys.stderr)
         sys.exit(1)
 
-    therapist = details.get("therapist", "")
-    event_title = build_event_summary(details["name"], therapist)
+    therapist = details.get("therapist")  # dict or None
+    therapist_name = details.get("therapist_name", "")
+    event_title = build_event_summary(details["name"], therapist_name)
 
     print("\nCrafted confirmation message (copy this to send via your phone/SMS app):")
     print("-" * 50)
@@ -342,8 +484,20 @@ def main():
     print("-" * 50)
 
     print(f"\nCalendar event title will be: {event_title}")
-    if therapist:
-        print(f"Requested therapist: {therapist}")
+    if therapist_name:
+        print(f"Requested therapist: {therapist_name}")
+
+    # Determine color automatically
+    if details.get("is_couples"):
+        color_id = "2"  # Sage - always for couples
+    elif therapist:
+        color_id = therapist.get("default_color", "7")
+    else:
+        color_id = "7"  # Peacock - default when no therapist requested
+
+    color_name = get_color_name(color_id)
+    print(f"Calendar color: {color_name} (ID {color_id})")
+
     print(f"Details: {details['confirmation_details']}")
     print(f"Time: {details['display_time']} on {details['display_date']} ({details['duration_minutes']} minutes)")
 
@@ -351,32 +505,87 @@ def main():
         print("\n[DRY RUN] No calendar event created.")
         return
 
-    color_id = None
-    if therapist:
-        color_id = prompt_color_selection()
-
     confirm = input("\nCreate the Google Calendar event now? (y/N): ").strip().lower()
     if confirm not in ("y", "yes"):
         print("Cancelled. No calendar event created.")
         return
 
-    # Create Calendar event
+    # === Thorough double-booking prevention check ===
+    analysis = analyze_booking_conflicts(
+        details["start_dt"],
+        details["end_dt"],
+        requested_therapist_name=therapist_name if therapist_name else None,
+        num_massages=details.get("num_massages", 1),
+        is_couples=details.get("is_couples", False),
+    )
+
+    if analysis.get('hard_conflict') or analysis['conflicts']:
+        print("\n" + "=" * 60)
+        print("⚠️  BOOKING CONFLICT ANALYSIS")
+        print("=" * 60)
+
+        print(f"Current therapist usage in this time window: {analysis['current_concurrent']}")
+        print(f"Maximum allowed:                             {analysis['max_capacity']}")
+        print(f"This booking will use:                       {analysis.get('booking_slots', 1)} therapist slots")
+
+        if analysis.get('capacity_violation'):
+            print("\n❌ CAPACITY VIOLATION")
+            slots = analysis.get('booking_slots', 1)
+            print(f"   This booking uses {slots} therapist slots.")
+            print(f"   Would exceed maximum of {analysis['max_capacity']}.")
+
+        if analysis.get('therapist_conflict'):
+            print(f"\n❌ THERAPIST CONFLICT")
+            print(f"   {analysis.get('conflicting_therapist')} is already booked during this time.")
+
+        if analysis['conflicts']:
+            if analysis.get('hard_conflict'):
+                print("\nConflicting appointments:")
+            else:
+                print("\nOther appointments in this time slot (different therapists — acceptable):")
+
+            for c in analysis['conflicts']:
+                print(f"  • {c['summary']}")
+                print(f"    Starts: {c['start']}")
+                if c.get('htmlLink'):
+                    print(f"    Link:   {c['htmlLink']}")
+
+        print("\n" + analysis['message'])
+        print("\nThe calendar is the source of truth. Double bookings are not allowed.")
+        print("=" * 60)
+
+        override = input("\nProceed with this booking anyway? (y/N): ").strip().lower()
+        if override not in ("y", "yes"):
+            print("Booking cancelled.")
+            return
+
+    # Create one calendar event per massage requested
+    num_to_create = details.get("num_massages", 1)
+    created_events = []
+
+    light_description = f"Customer: {details['name']}\nTherapist: {therapist_name or 'Unassigned'}\nNotes: -"
+
     try:
-        event = create_calendar_event(
-            name=details["name"],
-            description=details["message"],
-            start_dt=details["start_dt"],
-            end_dt=details["end_dt"],
-            therapist=therapist,
-            color_id=color_id,
-        )
-        event_link = event.get("htmlLink", "No link available")
-        print(f"\nGoogle Calendar event created: {event_link}")
-        print(f"Event ID: {event.get('id')}")
-        if color_id:
-            print(f"Color ID applied: {color_id}")
+        for i in range(num_to_create):
+            event = create_calendar_event(
+                name=details["name"],
+                description=light_description,
+                start_dt=details["start_dt"],
+                end_dt=details["end_dt"],
+                therapist=therapist_name,
+                color_id=color_id,
+            )
+            created_events.append(event)
+
+        print(f"\nSuccessfully created {num_to_create} calendar event(s):")
+        for i, ev in enumerate(created_events, 1):
+            link = ev.get("htmlLink", "No link")
+            print(f"  {i}. {link} (ID: {ev.get('id')})")
+
+        print(f"Color applied: {color_name}")
+
     except Exception as e:
-        print(f"Failed to create calendar event: {e}", file=sys.stderr)
+        print(f"Failed to create calendar event(s): {e}", file=sys.stderr)
         sys.exit(1)
 
     print("\nReservation processing complete.")
