@@ -169,15 +169,19 @@ if submitted:
         full_message += f"\n\nNotes for therapist: {notes.strip()}"
 
     # Build title and color
-    event_title = build_event_summary(name, therapist_name)
+    num_massages = int(num_massages)  # ensure int
 
-    if is_couples:
-        color_id = "2"  # Sage
+    event_title = build_event_summary(name, therapist_name, num_massages)
+
+    if num_massages > 1:
+        color_id = "10"  # Basil - forced for multi-massage bookings
+    elif is_couples:
+        color_id = "2"   # Sage
     elif therapist_name:
         therapist_obj = next((t for t in therapists if t["name"] == therapist_name), None)
         color_id = therapist_obj["default_color"] if therapist_obj else "7"
     else:
-        color_id = "7"  # Peacock default
+        color_id = "7"   # Peacock default
 
     color_name = get_color_name(color_id)
 
@@ -244,9 +248,10 @@ if "booking_data" in st.session_state:
 
             if analysis["capacity_violation"]:
                 slots = analysis.get('booking_slots', 1)
+                current_used = analysis.get('current_slots_used', analysis.get('current_concurrent', 0))
                 st.warning(
                     f"**Capacity Violation**: This booking would use **{slots}** therapist slots. "
-                    f"Current load: {analysis['current_concurrent']}/{analysis['max_capacity']}."
+                    f"Current load: {current_used}/{analysis['max_capacity']}."
                 )
 
             if analysis["therapist_conflict"]:
@@ -268,26 +273,21 @@ if "booking_data" in st.session_state:
     if create_clicked:
         with st.spinner("Creating calendar event..."):
             try:
-                # Create one event per massage requested
-                num_to_create = data["num_massages"]
-                created_links = []
+                # Create exactly one event (title will show quantity if > 1, e.g. "Appt x3: John")
+                event = create_calendar_event(
+                    name=data["name"],
+                    description=f"Customer: {data['name']}\n"
+                                f"Therapist: {data['therapist_name'] or 'Unassigned'}\n"
+                                f"Notes: {data['notes'] or '-'}",
+                    start_dt=data["start_dt"],
+                    end_dt=data["end_dt"],
+                    therapist=data["therapist_name"],
+                    num_massages=data.get("num_massages", 1),
+                    color_id=data["color_id"],
+                )
 
-                for i in range(num_to_create):
-                    event = create_calendar_event(
-                        name=data["name"],
-                        description=f"Customer: {data['name']}\n"
-                                    f"Therapist: {data['therapist_name'] or 'Unassigned'}\n"
-                                    f"Notes: {data['notes'] or '-'}",
-                        start_dt=data["start_dt"],
-                        end_dt=data["end_dt"],
-                        therapist=data["therapist_name"],
-                        color_id=data["color_id"],
-                    )
-                    created_links.append(event.get('htmlLink', ''))
-
-                st.success(f"Successfully created {num_to_create} calendar event(s)!")
-                for i, link in enumerate(created_links, 1):
-                    st.markdown(f"- Event {i}: [View in Google Calendar]({link})")
+                st.success("Booking created successfully!")
+                st.markdown(f"[View in Google Calendar]({event.get('htmlLink')})")
                 st.balloons()
 
                 # Clear state

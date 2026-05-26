@@ -24,8 +24,9 @@ A Python CLI program that crafts personalized reservation confirmation text mess
 - `--dry-run` mode to preview everything without creating a calendar event
 - **Strong conflict prevention**:
   - Enforces maximum concurrent *therapist usage* = number of therapists (currently 4)
-  - A regular massage consumes 1 slot. A couples massage consumes **2 slots**.
-  - "2 couples massages" = 4 therapist slots.
+  - A regular massage consumes 1 slot per massage.
+  - A couples massage consumes **2 slots** per massage.
+  - Example: 3 regular massages = 3 slots. 2 couples massages = 4 slots.
   - Prevents the same therapist from having overlapping bookings
   - Clear warnings + confirmation required to override
 - Supports `.env` configuration for Google credentials paths
@@ -257,7 +258,9 @@ The GUI includes:
 - **Automatic conflict analysis** after submission (only flags real problems: capacity exceeded or same-therapist overlap)
 - Different-therapist overlaps are shown as informational only
 - Quick Availability View (next 5 hours of bookings)
-- Creates one calendar event **per massage requested** (e.g., 3 massages → 3 events)
+- Creates **exactly one** calendar event per booking.
+- If Number of Massages > 1, the title is labeled accordingly: e.g. "Appt x3: John" or "Yenni - Appt x2: Maria".
+- Multi-massage bookings (num > 1) are automatically colored **Basil**.
 - Light description in calendar events (customer + therapist + notes). The full SMS message is shown in the GUI for copy-paste.
 
 ## Files
