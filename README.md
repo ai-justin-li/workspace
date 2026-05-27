@@ -13,7 +13,7 @@ A Python CLI program that crafts personalized reservation confirmation text mess
   - `your 60-minute hot stone couples massage`
 - Optional **requested therapist** selected from a list:
   - Therapist name is appended to the message text ("... with Jane Doe")
-  - Calendar title becomes `Jane Doe - Appt: Client Name`
+  - Calendar title becomes `Appt: Client Name` (or `Appt x3: Client Name` for multiple massages). Therapist name is omitted from the title.
   - Color is assigned automatically:
     - Couples massage → Sage
     - Specific therapist → Their configured default color
@@ -176,9 +176,9 @@ Hi Maria Lopez, thank you for choosing SoCo Spa! Here is your reservation confir
 Our location is: 115 Willbrook Blvd., Suite E, Pawleys Island, SC 29585. We are looking forward to seeing you!
 --------------------------------------------------
 
-Calendar event title will be: Yenni - Appt: Maria Lopez
+Calendar event title will be: Appt: Maria Lopez
 Requested therapist: Yenni
-Calendar color: Blueberry (ID 9)
+Calendar color: Tangerine (ID 6)
 Details: a 60-minute deep tissue massage with Yenni
 Time: 11:00 AM on April 22, 2025 (60 minutes)
 
@@ -208,7 +208,7 @@ Created events have:
 
 - **Title**:
   - No therapist requested: `Appt: Maria Lopez`
-  - Therapist requested: `Jane Doe - Appt: Maria Lopez`
+  - Therapist requested: `Appt: Maria Lopez`
 - **Color** (automatic):
   - Couples massage → Sage
   - Specific therapist → Their default color (configured in therapists.json)
@@ -241,25 +241,60 @@ All can be set in `.env` or the shell environment (only needed for Google):
 - **Time shows wrong**: Input uses 24-hour time; output is rendered in America/New_York.
 - **No browser opens for login**: Run on a machine with a browser, or set up the token.json on another machine and copy it over.
 
-## GUI Version (Recommended for Daily Use)
+## Accessing the Mobile App from iPhone (Remote Access)
 
-A graphical interface is available using Streamlit. It provides the same logic as the CLI with a much friendlier experience for the receptionists.
+The phone-friendly version (`mobile_api.py`) can be accessed from your iPhone even when you're not on the same Wi-Fi using **Cloudflare Tunnel** (free and easy).
 
-### Running the GUI
+### 1. Run the Mobile API
 
 ```bash
 pip install -r requirements.txt
-streamlit run spa_booking_gui.py
+
+# Recommended: Set secure credentials
+# No authentication required at the moment
+
+uvicorn mobile_api:app --reload --host 0.0.0.0 --port 8000
 ```
+
+### 2. Expose it with Cloudflare Tunnel
+
+In a new terminal:
+
+```bash
+# One-time install
+brew install cloudflare/cloudflare/cloudflared
+
+# Create the tunnel
+cloudflared tunnel --url http://localhost:8000
+```
+
+Cloudflare will give you a public URL like:
+`https://random-words.trycloudflare.com`
+
+### 3. Access from iPhone
+
+On your iPhone, open Safari and go to:
+```
+https://random-words.trycloudflare.com/mobile/
+```
+
+The booking form will load directly (no login required at the moment).
+
+**Pro tip:** Add the page to your Home Screen (Share → Add to Home Screen) so it feels like a real app.
+
+### Notes
+- Authentication is currently disabled (no login required).
+- Do **not** share the tunnel URL publicly if you are using one.
+- The tunnel is encrypted (HTTPS) by Cloudflare.
 
 The GUI includes:
 - Easy form inputs + optional notes for therapists
 - Live preview of the message + calendar title + assigned color
 - **Automatic conflict analysis** after submission (only flags real problems: capacity exceeded or same-therapist overlap)
 - Different-therapist overlaps are shown as informational only
-- Quick Availability View (next 5 hours of bookings)
+- Quick Availability View (next 12 hours of bookings)
 - Creates **exactly one** calendar event per booking.
-- If Number of Massages > 1, the title is labeled accordingly: e.g. "Appt x3: John" or "Yenni - Appt x2: Maria".
+- If Number of Massages > 1, the title is labeled accordingly: e.g. "Appt x3: John" or "大力Appt x2: Maria" (therapist name is omitted from the title; color is used instead).
 - Multi-massage bookings (num > 1) are automatically colored **Basil**.
 - Light description in calendar events (customer + therapist + notes). The full SMS message is shown in the GUI for copy-paste.
 

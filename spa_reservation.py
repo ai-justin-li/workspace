@@ -94,6 +94,7 @@ def create_calendar_event(
     end_dt: datetime,
     therapist: str = "",
     num_massages: int = 1,
+    notes: str = "",
     color_id: str | None = None,
     location: str = SPA_LOCATION,
 ) -> dict:
@@ -106,12 +107,14 @@ def create_calendar_event(
     - No therapist → Peacock (default)
 
     Title format:
-    - If num_massages > 1: "Therapist - Appt x3: Name" or "Appt x3: Name"
-    - Otherwise: "Therapist - Appt: Name" or "Appt: Name"
+    - Notes are prepended if provided, e.g. "大力Appt x3: Name"
+    - If num_massages > 1: "Appt x3: Name"
+    - Otherwise: "Appt: Name"
+    - Therapist name is intentionally omitted from the title (color is used to identify the therapist)
     """
     service = get_calendar_service()
 
-    summary = build_event_summary(name, therapist, num_massages)
+    summary = build_event_summary(name, num_massages, notes)
 
     event = {
         "summary": summary,
@@ -211,22 +214,72 @@ def build_confirmation_details(
     return phrase
 
 
-def build_event_summary(name: str, therapist: str = "", num_massages: int = 1) -> str:
+def build_event_summary(name: str, num_massages: int = 1, notes: str = "") -> str:
     """Build the Google Calendar event title.
 
+    If notes are provided, they are prepended directly to the title (e.g. "大力Appt x3: John").
+    Therapist name is no longer included in the title (color coding is used instead).
     Examples:
-    - "Jane Doe - Appt: Maria Lopez"
-    - "Appt x3: John"
-    - "Yenni - Appt x2: Andy & Sarah"
+    - "大力Appt x3: John"
+    - "Appt: Maria Lopez"
+    - "大力Appt x2: Andy & Sarah"
     """
     if num_massages > 1:
-        if therapist:
-            return f"{therapist} - Appt x{num_massages}: {name}"
-        return f"Appt x{num_massages}: {name}"
+        base = f"Appt x{num_massages}: {name}"
     else:
-        if therapist:
-            return f"{therapist} - Appt: {name}"
-        return f"Appt: {name}"
+        base = f"Appt: {name}"
+
+    if notes:
+        return notes + base
+    return base
+
+
+def get_upcoming_events(hours: int = 12):
+    """
+    Return a list of upcoming events in the next N hours.
+    Each item has:
+      - time: human readable time range (e.g. "2:00 PM – 3:00 PM")
+      - summary: event title
+    """
+    try:
+        service = get_calendar_service()
+        now = datetime.now(ZoneInfo("America/New_York"))
+        time_max = now + timedelta(hours=hours)
+
+        events_result = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=now.isoformat(),
+            timeMax=time_max.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+
+        events = events_result.get('items', [])
+        upcoming = []
+
+        for event in events:
+            summary = event.get('summary', 'Untitled Event')
+            start = event['start'].get('dateTime')
+            end = event['end'].get('dateTime')
+
+            if start and end:
+                start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(ZoneInfo("America/New_York"))
+                end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')).astimezone(ZoneInfo("America/New_York"))
+
+                time_str = f"{start_dt.strftime('%-I:%M %p')} – {end_dt.strftime('%-I:%M %p')}"
+            else:
+                time_str = "All day"
+
+            upcoming.append({
+                "time": time_str,
+                "summary": summary
+            })
+
+        return upcoming
+
+    except Exception as e:
+        print(f"Error fetching upcoming events: {e}")
+        return []
 
 
 def load_therapists() -> list[dict]:
@@ -523,7 +576,7 @@ def main():
 
     therapist = details.get("therapist")  # dict or None
     therapist_name = details.get("therapist_name", "")
-    event_title = build_event_summary(details["name"], therapist_name, details.get("num_massages", 1))
+    event_title = build_event_summary(details["name"], details.get("num_massages", 1), details.get("notes", ""))
 
     print("\nCrafted confirmation message (copy this to send via your phone/SMS app):")
     print("-" * 50)
@@ -623,6 +676,7 @@ def main():
             end_dt=details["end_dt"],
             therapist=therapist_name,
             num_massages=details.get("num_massages", 1),
+            notes=details.get("notes", ""),
             color_id=color_id,
         )
 

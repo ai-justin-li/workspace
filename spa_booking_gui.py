@@ -25,10 +25,63 @@ from spa_reservation import (
 
 TEMPLATE_PATH = Path(__file__).parent / "template"
 
-st.set_page_config(page_title="SoCo Spa Booking", page_icon="💆‍♀️", layout="centered")
+st.set_page_config(
+    page_title="SoCo Spa Booking",
+    page_icon="💆‍♀️",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 
-st.title("SoCo Spa — Reservation Booking")
-st.caption("For reception use only")
+# Mobile-friendly styling + PWA hints
+st.markdown("""
+<style>
+    /* Prevent iOS auto-zoom on input focus */
+    .stTextInput input, .stNumberInput input, .stSelectbox, .stTextArea textarea {
+        font-size: 16px !important;
+    }
+    
+    /* Larger touch targets */
+    .stButton button {
+        min-height: 48px !important;
+        font-size: 16px !important;
+    }
+    
+    /* Make the app feel more native on phone */
+    .block-container {
+        padding-top: 0.5rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        max-width: 100% !important;
+    }
+    
+    /* Cleaner look on mobile */
+    header {visibility: hidden;}
+    .stDeployButton {display: none;}
+    footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("SoCo Spa — Booking")
+st.caption("Receptionist tool • Built for iPhone use")
+
+st.info("**Tip for receptionists:** Add this page to your iPhone Home Screen (Safari → Share → Add to Home Screen) so it feels like a real app you can open while on a call.")
+
+# Add PWA manifest so it can be installed on iPhone home screen
+st.markdown("""
+<link rel="manifest" href="data:application/manifest+json,{
+  \"name\": \"SoCo Spa Booking\",
+  \"short_name\": \"SoCo Booking\",
+  \"start_url\": \".\",
+  \"display\": \"standalone\",
+  \"background_color\": \"#ffffff\",
+  \"theme_color\": \"#0f766e\",
+  \"icons\": [{
+    \"src\": \"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%86%E2%80%8D%E2%99%80%EF%B8%8F%3C/text%3E%3C/svg%3E\",
+    \"sizes\": \"192x192\",
+    \"type\": \"image/svg+xml\"
+  }]
+}">
+""", unsafe_allow_html=True)
 
 # --- Smart Defaults ---
 today_str = date.today().strftime("%Y%m%d")
@@ -42,46 +95,49 @@ else:
     next_time = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
 default_time_str = next_time.strftime("%H%M")
 
-# --- Availability Quick View ---
-with st.expander("📅 Quick Availability View (Next 5 hours)", expanded=False):
-    if st.button("Refresh Availability"):
+# --- Quick Availability View (always visible, mobile friendly) ---
+st.subheader("📅 Next 5 Hours")
+
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.caption("Current bookings on the calendar")
+with col2:
+    if st.button("Refresh", use_container_width=True):
         st.rerun()
 
-    try:
-        from spa_reservation import get_calendar_service
-        service = get_calendar_service()
+try:
+    from spa_reservation import get_calendar_service
+    service = get_calendar_service()
 
-        now = datetime.now(ZoneInfo("America/New_York"))
-        time_max = now + timedelta(hours=5)
+    now = datetime.now(ZoneInfo("America/New_York"))
+    time_max = now + timedelta(hours=12)
 
-        events_result = service.events().list(
-            calendarId="primary",
-            timeMin=now.isoformat(),
-            timeMax=time_max.isoformat(),
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
+    events_result = service.events().list(
+        calendarId="primary",
+        timeMin=now.isoformat(),
+        timeMax=time_max.isoformat(),
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
 
-        events = events_result.get('items', [])
+    events = events_result.get('items', [])
 
-        if not events:
-            st.success("No appointments scheduled in the next 5 hours.")
-        else:
-            st.write(f"**Showing appointments from now until {time_max.strftime('%-I:%M %p')}:**")
-            for event in events:
-                summary = event.get('summary', 'Untitled')
-                start = event['start'].get('dateTime', event['start'].get('date'))
-                if 'T' in start:
-                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(ZoneInfo("America/New_York"))
-                    time_str = start_dt.strftime("%-I:%M %p")
-                else:
-                    time_str = start
+    if not events:
+        st.success("✅ No appointments in the next 12 hours — you're clear!")
+    else:
+        for event in events:
+            summary = event.get('summary', 'Untitled')
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            if 'T' in start:
+                start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(ZoneInfo("America/New_York"))
+                time_str = start_dt.strftime("%-I:%M %p")
+            else:
+                time_str = start
+            st.write(f"**{time_str}** — {summary}")
 
-                st.write(f"• **{time_str}** — {summary}")
-
-    except Exception as e:
-        st.warning(f"Could not load availability view: {e}")
-        st.info("Make sure you have valid Google credentials configured.")
+except Exception as e:
+    st.warning("Could not load live calendar (check credentials).")
+    st.caption("You can still create bookings — just double-check the calendar manually.")
 
 st.divider()
 
@@ -91,35 +147,35 @@ therapist_names = [t["name"] for t in therapists]
 
 # --- Form ---
 with st.form("booking_form"):
-    st.subheader("Customer & Appointment Details")
+    st.subheader("New Reservation")
 
-    col1, col2 = st.columns(2)
+    name = st.text_input("Customer Name *", placeholder="Customer name")
+
+    col1, col2 = st.columns([1, 1])
     with col1:
-        name = st.text_input("Customer Name *", placeholder="Maria Lopez")
         num_massages = st.number_input("Number of Massages", min_value=1, max_value=6, value=1, step=1)
     with col2:
-        is_couples = st.checkbox("Couples Massage")
-        massage_type = st.text_input("Massage Type (optional)", placeholder="deep tissue, Swedish, etc.")
+        is_couples = st.checkbox("This is a Couples Massage", value=False)
 
-    # Therapist selection
+    massage_type = st.text_input("Massage Type (optional)", placeholder="deep tissue, Swedish, hot stone...")
+
+    # Therapist
     therapist_options = ["No specific therapist"] + therapist_names
     selected_therapist = st.selectbox("Requested Therapist", therapist_options, index=0)
     therapist_name = selected_therapist if selected_therapist != "No specific therapist" else ""
 
-    # Date and Time
-    col3, col4 = st.columns(2)
-    with col3:
-        date_str = st.text_input("Date (YYYYMMDD) *", value=today_str)
-    with col4:
-        time_str = st.text_input("Time (HHMM, 24h) *", value=default_time_str)
+    # Date & Time - stacked on phone for easier tapping
+    st.markdown("**Date & Time**")
+    date_str = st.text_input("Date (YYYYMMDD)", value=today_str)
+    time_str = st.text_input("Time (HHMM)", value=default_time_str)
 
     duration = st.number_input("Duration (minutes)", min_value=30, max_value=180, value=60, step=15)
 
-    notes = st.text_area("Notes for therapists (optional)", 
-                         placeholder="Customer has lower back issues, prefers firm pressure, etc.",
-                         height=80)
+    notes = st.text_area("Notes / Special Requests (optional)", 
+                         placeholder="Lower back issues, prefers firm pressure...",
+                         height=70)
 
-    submitted = st.form_submit_button("Preview Booking & Check Availability", type="primary")
+    submitted = st.form_submit_button("Preview & Check Conflicts", type="primary", use_container_width=True)
 
 # --- Preview Section ---
 if submitted:
@@ -171,7 +227,7 @@ if submitted:
     # Build title and color
     num_massages = int(num_massages)  # ensure int
 
-    event_title = build_event_summary(name, therapist_name, num_massages)
+    event_title = build_event_summary(name, num_massages, notes)
 
     if num_massages > 1:
         color_id = "10"  # Basil - forced for multi-massage bookings
@@ -283,6 +339,7 @@ if "booking_data" in st.session_state:
                     end_dt=data["end_dt"],
                     therapist=data["therapist_name"],
                     num_massages=data.get("num_massages", 1),
+                    notes=data.get("notes", ""),
                     color_id=data["color_id"],
                 )
 
@@ -298,3 +355,21 @@ if "booking_data" in st.session_state:
             except Exception as e:
                 st.error(f"Failed to create booking: {e}")
                 st.info("You can still create the event manually in Google Calendar using the details above.")
+
+# --- iPhone Home Screen Instructions ---
+st.divider()
+with st.expander("📱 Install on your iPhone (makes it feel like a real app)", expanded=False):
+    st.markdown("""
+    **Best way to use this while on calls:**
+
+    1. On your iPhone, open this page in **Safari**.
+    2. Tap the **Share** button (box with arrow pointing up).
+    3. Scroll down and tap **"Add to Home Screen"**.
+    4. Tap **Add**.
+
+    It will now appear on your home screen like a normal app. You can open it while on a phone call with a customer.
+
+    **To access it from your phone:**
+    - If running locally on a Mac: Use **ngrok** (`ngrok http 8501`) and open the https link on your iPhone.
+    - Or host it properly so it's always available.
+    """)
