@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SoCo Spa Booking</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .input { font-size: 16px; }
+        .section-header { font-size: 12px; letter-spacing: 0.5px; font-weight: 600; color: #64748b; }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white">
+    <div class="max-w-md mx-auto min-h-screen bg-zinc-900 pb-8">
+
+        <!-- Header -->
+        <div class="bg-zinc-950 px-4 py-4 flex items-center justify-between border-b border-zinc-800 sticky top-0 z-10">
+            <div class="flex items-center gap-x-3">
+                <div class="w-9 h-9 bg-teal-600 rounded-2xl flex items-center justify-center">
+                    <i class="fa-solid fa-spa text-white text-xl"></i>
+                </div>
+                <div>
+                    <div class="font-semibold text-lg">SoCo Spa</div>
+                    <div class="text-[10px] text-zinc-500 -mt-1">BOOKING</div>
+                </div>
+            </div>
+            <div onclick="refreshAvailability()" 
+                 class="flex items-center gap-x-1 text-teal-400 text-sm active:bg-zinc-800 px-3 py-1.5 rounded-2xl">
+                <i class="fa-solid fa-sync text-xs"></i>
+                <span class="text-xs font-medium">Refresh</span>
+            </div>
+        </div>
+
+        <div class="p-4 space-y-5">
+
+            <!-- Availability -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <div class="section-header">NEXT 12 HOURS</div>
+                    <button onclick="refreshAvailability()" 
+                            class="text-teal-400 text-xs px-2 py-1 active:bg-zinc-800 rounded">Refresh</button>
+                </div>
+                <div id="availability" class="bg-zinc-950 border border-zinc-800 rounded-2xl p-3 text-sm min-h-[60px]">
+                    Loading...
+                </div>
+            </div>
+
+            <!-- Booking Form -->
+            <div class="space-y-4">
+                <div>
+                    <div class="section-header mb-1.5">CUSTOMER NAME</div>
+                    <input id="name" type="text" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600" placeholder="Customer name">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <div class="section-header mb-1.5">MASSAGES</div>
+                        <input id="num_massages" type="number" value="1" min="1" max="6" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600">
+                    </div>
+                    <div class="flex items-end">
+                        <label class="flex items-center gap-x-2 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 w-full active:bg-zinc-900 cursor-pointer">
+                            <input id="is_couples" type="checkbox" class="w-5 h-5 accent-teal-600">
+                            <span class="text-sm">Couples</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section-header mb-1.5">MASSAGE TYPE (OPTIONAL)</div>
+                    <input id="massage_type" type="text" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600" placeholder="deep tissue, Swedish...">
+                </div>
+
+                <div>
+                    <div class="section-header mb-1.5">REQUESTED THERAPIST</div>
+                    <select id="therapist" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600">
+                        <option value="">No specific therapist</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <div class="section-header mb-1.5">DATE (YYYYMMDD)</div>
+                        <input id="date" type="text" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600">
+                    </div>
+                    <div>
+                        <div class="section-header mb-1.5">TIME (HHMM)</div>
+                        <input id="time" type="text" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600">
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section-header mb-1.5">DURATION (MINUTES)</div>
+                    <input id="duration" type="number" value="60" step="15" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600">
+                </div>
+
+                <div>
+                    <div class="section-header mb-1.5">NOTES (OPTIONAL)</div>
+                    <textarea id="notes" rows="2" class="input w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 focus:outline-none focus:border-teal-600 resize-y" placeholder="Firm pressure, lower back issues..."></textarea>
+                </div>
+            </div>
+
+            <button onclick="previewAndCheck()"
+                    class="w-full bg-white active:bg-zinc-200 text-black font-semibold py-4 rounded-3xl text-base">
+                Preview Message &amp; Check Conflicts
+            </button>
+
+            <!-- Preview -->
+            <div id="preview" class="hidden space-y-4 pt-2">
+                <div class="bg-zinc-950 border border-zinc-800 rounded-3xl p-4">
+                    <div class="text-xs text-zinc-500 mb-1 font-medium">MESSAGE TO COPY FOR SMS</div>
+                    <div id="preview-message" class="text-sm leading-relaxed whitespace-pre-line"></div>
+                </div>
+
+                <div class="bg-zinc-950 border border-zinc-800 rounded-3xl p-4">
+                    <div class="text-xs text-zinc-500 mb-1 font-medium">CALENDAR EVENT</div>
+                    <div id="preview-title" class="font-medium"></div>
+                    <div id="preview-color" class="text-xs text-zinc-400 mt-0.5"></div>
+                </div>
+
+                <div id="conflict-box" class="hidden"></div>
+
+                <button onclick="createBooking()"
+                        class="w-full bg-teal-600 active:bg-teal-700 text-white font-semibold py-4 rounded-3xl text-base">
+                    Create Booking
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1') 
+            ? 'http://127.0.0.1:8000' 
+            : window.location.origin;
+
+        let currentData = null;
+
+        async function loadTherapists() {
+            try {
+                const res = await fetch(`${API_BASE}/therapists`);
+                const therapists = await res.json();
+                const select = document.getElementById('therapist');
+                therapists.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.name;
+                    opt.textContent = t.name;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function setDefaults() {
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, '0');
+            const d = String(today.getDate()).padStart(2, '0');
+            document.getElementById('date').value = `${y}${m}${d}`;
+
+            const now = new Date();
+            let h = now.getHours();
+            let min = now.getMinutes();
+            if (min < 30) min = 30; else { min = 0; h = (h + 1) % 24; }
+            document.getElementById('time').value = String(h).padStart(2,'0') + String(min).padStart(2,'0');
+        }
+
+        async function refreshAvailability() {
+            const el = document.getElementById('availability');
+            if (!el) return;
+            el.innerHTML = '<span class="text-zinc-400">Loading...</span>';
+
+            try {
+                const res = await fetch(`${API_BASE}/availability?hours=12`);
+                const data = await res.json();
+
+                if (!data.events || data.events.length === 0) {
+                    el.innerHTML = '<span class="text-emerald-400">No appointments in the next 12 hours ✓</span>';
+                    return;
+                }
+
+                let html = '';
+                data.events.forEach(ev => {
+                    html += `
+                        <div class="flex justify-between py-1 border-b border-zinc-800 last:border-b-0">
+                            <span class="font-medium text-sm">${ev.time}</span>
+                            <span class="text-sm text-zinc-300 ml-3 truncate">${ev.summary}</span>
+                        </div>
+                    `;
+                });
+
+                el.innerHTML = html;
+
+            } catch (e) {
+                console.error(e);
+                el.innerHTML = '<span class="text-amber-400">Could not load calendar</span>';
+            }
+        }
+
+        function formatDisplayDate(yyyymmdd) {
+            if (!yyyymmdd || yyyymmdd.length !== 8) return yyyymmdd;
+            const year = parseInt(yyyymmdd.substring(0, 4), 10);
+            const month = parseInt(yyyymmdd.substring(4, 6), 10) - 1; // month is 0-based
+            const day = parseInt(yyyymmdd.substring(6, 8), 10);
+            const d = new Date(year, month, day);
+            return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        }
+
+        function collectData() {
+            const name = document.getElementById('name').value.trim();
+            if (!name) { alert("Customer name is required"); return null; }
+
+            return {
+                name,
+                num_massages: parseInt(document.getElementById('num_massages').value) || 1,
+                is_couples: document.getElementById('is_couples').checked,
+                massage_type: document.getElementById('massage_type').value.trim(),
+                therapist_name: document.getElementById('therapist').value,
+                date_str: document.getElementById('date').value.trim(),
+                time_str: document.getElementById('time').value.trim(),
+                duration_minutes: parseInt(document.getElementById('duration').value) || 60,
+                notes: document.getElementById('notes').value.trim()
+            };
+        }
+
+        async function previewAndCheck() {
+            const data = collectData();
+            if (!data) return;
+            currentData = data;
+
+            try {
+                const res = await fetch(`${API_BASE}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const analysis = await res.json();
+
+                // Build message
+                const displayDate = formatDisplayDate(data.date_str);
+                const displayTime = data.time_str.replace(/(\d{2})(\d{2})/, '$1:$2');
+                let dur = data.duration_minutes + '-minute';
+                let phrase = data.is_couples 
+                    ? `your ${dur} ${data.massage_type ? data.massage_type + ' ' : ''}couples massage`
+                    : (data.num_massages === 1 
+                        ? `a ${dur} ${data.massage_type || ''} massage` 
+                        : `your ${data.num_massages} ${dur} ${data.massage_type || ''} massages`);
+
+                let msg = `Hi ${data.name}, thank you for choosing SoCo Spa! Here is your reservation confirmation for ${displayTime} on ${displayDate} for ${phrase}. \n\nOur location is: 115 Willbrook Blvd., Suite E, Pawleys Island, SC 29585. We are looking forward to seeing you!`;
+                if (data.notes) msg += `\n\nNotes: ${data.notes}`;
+
+                document.getElementById('preview-message').textContent = msg;
+
+                let title = data.therapist_name 
+                    ? `${data.therapist_name} - Appt${data.num_massages > 1 ? ' x' + data.num_massages : ''}: ${data.name}`
+                    : `Appt${data.num_massages > 1 ? ' x' + data.num_massages : ''}: ${data.name}`;
+                document.getElementById('preview-title').textContent = title;
+
+                let color = data.num_massages > 1 ? 'Basil' : (data.is_couples ? 'Sage' : (data.therapist_name ? 'Therapist default' : 'Peacock'));
+                document.getElementById('preview-color').textContent = `Color: ${color}`;
+
+                const box = document.getElementById('conflict-box');
+                box.classList.remove('hidden');
+                if (analysis.hard_conflict) {
+                    box.innerHTML = `<div class="bg-red-950 border border-red-900 rounded-2xl p-3 text-sm text-red-300">${analysis.message}</div>`;
+                    document.querySelector('#preview button').disabled = true;
+                } else {
+                    box.innerHTML = `<div class="bg-emerald-950 border border-emerald-900 rounded-2xl p-3 text-sm text-emerald-300">No hard conflicts. Good to go.</div>`;
+                    document.querySelector('#preview button').disabled = false;
+                }
+
+                document.getElementById('preview').classList.remove('hidden');
+
+            } catch (err) {
+                alert("Error: " + err.message);
+            }
+        }
+
+        async function createBooking() {
+            if (!currentData) return;
+            try {
+                const res = await fetch(`${API_BASE}/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentData)
+                });
+                const result = await res.json();
+                if (result.success) {
+                    alert("Booking created!");
+                    window.location.reload();
+                } else {
+                    alert(result.message || "Failed");
+                }
+            } catch (e) {
+                alert("Error: " + e.message);
+            }
+        }
+
+        window.onload = function() {
+            // Load therapists (will trigger Basic Auth popup if needed)
+            fetch(`${API_BASE}/therapists`).then(r => r.json()).then(therapists => {
+                const sel = document.getElementById('therapist');
+                therapists.forEach(t => {
+                    const o = document.createElement('option');
+                    o.value = t.name; o.textContent = t.name;
+                    sel.appendChild(o);
+                });
+            }).catch(() => {});
+
+            // Defaults
+            const today = new Date();
+            document.getElementById('date').value = today.getFullYear() + 
+                String(today.getMonth()+1).padStart(2,'0') + 
+                String(today.getDate()).padStart(2,'0');
+
+            const now = new Date();
+            let h = now.getHours(), m = now.getMinutes();
+            if (m < 30) m = 30; else { m=0; h=(h+1)%24; }
+            document.getElementById('time').value = String(h).padStart(2,'0') + String(m).padStart(2,'0');
+
+            // Load upcoming events
+            refreshAvailability();
+        }
+    </script>
+</body>
+</html>
