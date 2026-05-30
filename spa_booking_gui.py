@@ -227,12 +227,13 @@ if submitted:
     # Build title and color
     num_massages = int(num_massages)  # ensure int
 
-    event_title = build_event_summary(name, num_massages, notes)
+    event_title = build_event_summary(name, num_massages, duration, is_couples, notes)
 
-    if num_massages > 1:
-        color_id = "10"  # Basil - forced for multi-massage bookings
-    elif is_couples:
+    # Color rules: Sage for couples or exactly 2 massages; Basil for >2
+    if is_couples or num_massages == 2:
         color_id = "2"   # Sage
+    elif num_massages > 2:
+        color_id = "10"  # Basil
     elif therapist_name:
         therapist_obj = next((t for t in therapists if t["name"] == therapist_name), None)
         color_id = therapist_obj["default_color"] if therapist_obj else "7"
@@ -339,6 +340,8 @@ if "booking_data" in st.session_state:
                     end_dt=data["end_dt"],
                     therapist=data["therapist_name"],
                     num_massages=data.get("num_massages", 1),
+                    duration_minutes=data.get("duration", 60),
+                    is_couples=data.get("is_couples", False),
                     notes=data.get("notes", ""),
                     color_id=data["color_id"],
                 )

@@ -239,7 +239,12 @@
 
                 // Build message
                 const displayDate = formatDisplayDate(data.date_str);
-                const displayTime = data.time_str.replace(/(\d{2})(\d{2})/, '$1:$2');
+                // Convert HHMM to 12-hour AM/PM format (e.g. "2:30 PM")
+                let h = parseInt(data.time_str.substring(0, 2), 10);
+                const m = data.time_str.substring(2, 4);
+                const ampm = h >= 12 ? 'PM' : 'AM';
+                h = h % 12 || 12;
+                const displayTime = `${h}:${m} ${ampm}`;
                 let dur = data.duration_minutes + '-minute';
                 let phrase = data.is_couples 
                     ? `your ${dur} ${data.massage_type ? data.massage_type + ' ' : ''}couples massage`
@@ -252,12 +257,19 @@
 
                 document.getElementById('preview-message').textContent = msg;
 
-                let title = data.therapist_name 
-                    ? `${data.therapist_name} - Appt${data.num_massages > 1 ? ' x' + data.num_massages : ''}: ${data.name}`
-                    : `Appt${data.num_massages > 1 ? ' x' + data.num_massages : ''}: ${data.name}`;
+                // New title format (no therapist name in title)
+                let title;
+                const notePrefix = data.notes ? `${data.notes} ` : '';
+                if (data.is_couples) {
+                    title = `${notePrefix}Appt: ${data.duration_minutes}C ${data.name}`;
+                } else if (data.num_massages > 1) {
+                    title = `${notePrefix}Appt: ${data.duration_minutes}x${data.num_massages} ${data.name}`;
+                } else {
+                    title = `${notePrefix}Appt: ${data.name}`;
+                }
                 document.getElementById('preview-title').textContent = title;
 
-                let color = data.num_massages > 1 ? 'Basil' : (data.is_couples ? 'Sage' : (data.therapist_name ? 'Therapist default' : 'Peacock'));
+                let color = (data.is_couples || data.num_massages === 2) ? 'Sage' : (data.num_massages > 2 ? 'Basil' : (data.therapist_name ? 'Therapist default' : 'Peacock'));
                 document.getElementById('preview-color').textContent = `Color: ${color}`;
 
                 const box = document.getElementById('conflict-box');

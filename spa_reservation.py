@@ -94,31 +94,30 @@ def create_calendar_event(
     end_dt: datetime,
     therapist: str = "",
     num_massages: int = 1,
+    duration_minutes: int = 60,
+    is_couples: bool = False,
     notes: str = "",
     color_id: str | None = None,
     location: str = SPA_LOCATION,
 ) -> dict:
     """Create a Google Calendar event and return the created event resource.
 
-    Colors are assigned automatically based on business rules:
-    - If num_massages > 1 → Basil (forced)
-    - Couples → Sage
-    - Specific therapist → Their configured default color
-    - No therapist → Peacock (default)
+    Colors:
+    - Couples or exactly 2 massages → Sage
+    - More than 2 massages → Basil
+    - Otherwise → therapist default or Peacock
 
-    Title format:
-    - Notes are prepended if provided, e.g. "大力Appt x3: Name"
-    - If num_massages > 1: "Appt x3: Name"
-    - Otherwise: "Appt: Name"
-    - Therapist name is intentionally omitted from the title (color is used to identify the therapist)
+    Title examples:
+    - "大力 Appt: 90x2 Alex"   (2 massages, 90min, note "大力")
+    - "脚 Appt: 60x3 Alex"     (3 massages, 60min, note "脚")
+    - "Appt: 120C Alex"        (120min couples)
     """
     service = get_calendar_service()
 
-    summary = build_event_summary(name, num_massages, notes)
+    summary = build_event_summary(name, num_massages, duration_minutes or 60, is_couples, notes)
 
     event = {
         "summary": summary,
-        "location": location,
         "description": description,
         "start": {
             "dateTime": start_dt.isoformat(),
@@ -214,24 +213,24 @@ def build_confirmation_details(
     return phrase
 
 
-def build_event_summary(name: str, num_massages: int = 1, notes: str = "") -> str:
+def build_event_summary(name: str, num_massages: int = 1, duration_minutes: int = 60, is_couples: bool = False, notes: str = "") -> str:
     """Build the Google Calendar event title.
 
-    If notes are provided, they are prepended directly to the title (e.g. "大力Appt x3: John").
-    Therapist name is no longer included in the title (color coding is used instead).
     Examples:
-    - "大力Appt x3: John"
-    - "Appt: Maria Lopez"
-    - "大力Appt x2: Andy & Sarah"
+    - "大力 Appt: 90x2 Alex"   (2 massages, 90min + note "大力")
+    - "脚 Appt: 60x3 Alex"     (3 massages, 60min + note "脚")
+    - "Appt: 120C Alex"        (120min couples)
     """
-    if num_massages > 1:
-        base = f"Appt x{num_massages}: {name}"
+    prefix = f"{notes} " if notes else ""
+
+    if is_couples:
+        base = f"Appt: {duration_minutes}C {name}"
+    elif num_massages > 1:
+        base = f"Appt: {duration_minutes}x{num_massages} {name}"
     else:
         base = f"Appt: {name}"
 
-    if notes:
-        return notes + base
-    return base
+    return prefix + base
 
 
 def get_upcoming_events(hours: int = 12):
@@ -576,7 +575,13 @@ def main():
 
     therapist = details.get("therapist")  # dict or None
     therapist_name = details.get("therapist_name", "")
-    event_title = build_event_summary(details["name"], details.get("num_massages", 1), details.get("notes", ""))
+    event_title = build_event_summary(
+        details["name"], 
+        details.get("num_massages", 1), 
+        details.get("duration_minutes", 60), 
+        details.get("is_couples", False), 
+        details.get("notes", "")
+    )
 
     print("\nCrafted confirmation message (copy this to send via your phone/SMS app):")
     print("-" * 50)
@@ -588,11 +593,14 @@ def main():
         print(f"Requested therapist: {therapist_name}")
 
     # Determine color automatically
+    # Sage for all 2-person massages (couples or exactly 2 massages)
+    # Basil for more than 2 massages
     num_massages = details.get("num_massages", 1)
-    if num_massages > 1:
-        color_id = "10"  # Basil - for any multi-massage booking
-    elif details.get("is_couples"):
-        color_id = "2"   # Sage - always for couples (single)
+    is_couples = details.get("is_couples", False)
+    if is_couples or num_massages == 2:
+        color_id = "2"   # Sage
+    elif num_massages > 2:
+        color_id = "10"  # Basil
     elif therapist:
         color_id = therapist.get("default_color", "7")
     else:
@@ -676,6 +684,8 @@ def main():
             end_dt=details["end_dt"],
             therapist=therapist_name,
             num_massages=details.get("num_massages", 1),
+            duration_minutes=details.get("duration_minutes", 60),
+            is_couples=details.get("is_couples", False),
             notes=details.get("notes", ""),
             color_id=color_id,
         )

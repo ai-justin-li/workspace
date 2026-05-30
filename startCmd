@@ -1,0 +1,2 @@
+uvicorn mobile_api:app --reload --host 0.0.0.0 --port 8000
+cloudflared tunnel --url http://localhost:8000
