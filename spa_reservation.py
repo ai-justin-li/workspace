@@ -97,6 +97,7 @@ def create_calendar_event(
     duration_minutes: int = 60,
     is_couples: bool = False,
     notes: str = "",
+    is_returning: bool = False,
     color_id: str | None = None,
     location: str = SPA_LOCATION,
 ) -> dict:
@@ -114,7 +115,7 @@ def create_calendar_event(
     """
     service = get_calendar_service()
 
-    summary = build_event_summary(name, num_massages, duration_minutes or 60, is_couples, notes)
+    summary = build_event_summary(name, num_massages, duration_minutes or 60, is_couples, notes, is_returning)
 
     event = {
         "summary": summary,
@@ -213,13 +214,14 @@ def build_confirmation_details(
     return phrase
 
 
-def build_event_summary(name: str, num_massages: int = 1, duration_minutes: int = 60, is_couples: bool = False, notes: str = "") -> str:
+def build_event_summary(name: str, num_massages: int = 1, duration_minutes: int = 60, is_couples: bool = False, notes: str = "", is_returning: bool = False) -> str:
     """Build the Google Calendar event title.
 
     Examples:
     - "大力 Appt: 90x2 Alex"   (2 massages, 90min + note "大力")
     - "脚 Appt: 60x3 Alex"     (3 massages, 60min + note "脚")
     - "Appt: 120C Alex"        (120min couples)
+    - "Appt: 60x2 Alex r"      (returning customer)
     """
     prefix = f"{notes} " if notes else ""
 
@@ -230,7 +232,8 @@ def build_event_summary(name: str, num_massages: int = 1, duration_minutes: int 
     else:
         base = f"Appt: {name}"
 
-    return prefix + base
+    suffix = " r" if is_returning else ""
+    return prefix + base + suffix
 
 
 def get_upcoming_events(hours: int = 12):
@@ -497,6 +500,8 @@ def collect_reservation_details() -> dict:
             pass
         print("  Invalid selection. Please choose a number from the list.")
 
+    is_returning = input("Is this a returning customer? (y/N): ").strip().lower() in ("y", "yes")
+
     date_input = input("Appointment date (YYYYMMDD): ").strip()
     time_input = input("Appointment time in 24-hour format (HHMM, e.g. 1430): ").strip()
     duration_input = input("Duration in minutes (e.g. 60): ").strip()
@@ -552,6 +557,7 @@ def collect_reservation_details() -> dict:
         "massage_type": mtype,
         "therapist": therapist,           # dict or None
         "therapist_name": therapist_name, # string for display
+        "is_returning": is_returning,
         "confirmation_details": confirmation_details,
     }
 
@@ -580,7 +586,8 @@ def main():
         details.get("num_massages", 1), 
         details.get("duration_minutes", 60), 
         details.get("is_couples", False), 
-        details.get("notes", "")
+        details.get("notes", ""),
+        details.get("is_returning", False)
     )
 
     print("\nCrafted confirmation message (copy this to send via your phone/SMS app):")
@@ -687,6 +694,7 @@ def main():
             duration_minutes=details.get("duration_minutes", 60),
             is_couples=details.get("is_couples", False),
             notes=details.get("notes", ""),
+            is_returning=details.get("is_returning", False),
             color_id=color_id,
         )
 

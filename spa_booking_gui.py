@@ -157,6 +157,8 @@ with st.form("booking_form"):
     with col2:
         is_couples = st.checkbox("This is a Couples Massage", value=False)
 
+    is_returning = st.checkbox("Returning customer?", value=False)
+
     massage_type = st.text_input("Massage Type (optional)", placeholder="deep tissue, Swedish, hot stone...")
 
     # Therapist
@@ -227,7 +229,7 @@ if submitted:
     # Build title and color
     num_massages = int(num_massages)  # ensure int
 
-    event_title = build_event_summary(name, num_massages, duration, is_couples, notes)
+    event_title = build_event_summary(name, num_massages, duration, is_couples, notes, is_returning)
 
     # Color rules: Sage for couples or exactly 2 massages; Basil for >2
     if is_couples or num_massages == 2:
@@ -249,6 +251,7 @@ if submitted:
         "end_dt": end_dt,
         "therapist_name": therapist_name,
         "is_couples": is_couples,
+        "is_returning": is_returning,
         "massage_type": massage_type,
         "num_massages": num_massages,
         "duration": duration,
@@ -343,6 +346,7 @@ if "booking_data" in st.session_state:
                     duration_minutes=data.get("duration", 60),
                     is_couples=data.get("is_couples", False),
                     notes=data.get("notes", ""),
+                    is_returning=data.get("is_returning", False),
                     color_id=data["color_id"],
                 )
 
