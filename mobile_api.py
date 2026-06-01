@@ -223,6 +223,20 @@ def get_availability(hours: int = 12):
     return {"events": events, "hours": hours}
 
 
+@app.get("/calendar")
+def get_calendar(start: str, end: str):
+    """
+    Return events for a date range.
+    Query params: start=YYYY-MM-DD, end=YYYY-MM-DD
+    """
+    from spa_reservation import get_calendar_events
+    try:
+        events = get_calendar_events(start, end)
+        return {"events": events, "start": start, "end": end}
+    except Exception as e:
+        return {"events": [], "start": start, "end": end, "error": str(e)}
+
+
 # Serve the mobile web app
 app.mount("/mobile", StaticFiles(directory="static/mobile", html=True), name="mobile")
 

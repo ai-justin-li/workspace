@@ -284,6 +284,73 @@ def get_upcoming_events(hours: int = 12):
         return []
 
 
+def get_calendar_events(start_date: str, end_date: str):
+    """
+    Fetch events between two dates (YYYY-MM-DD format, interpreted in America/New_York).
+    Returns list of events with date, time range, and summary.
+    """
+    try:
+        service = get_calendar_service()
+        tz = ZoneInfo(DEFAULT_TIMEZONE)
+        # Start at local midnight on start_date
+        time_min = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz).isoformat()
+        # End at local midnight the day after end_date (standard way to include full end_date)
+        time_max = (datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=tz) + timedelta(days=1)).isoformat()
+
+        events_result = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+
+        events = events_result.get('items', [])
+        result = []
+
+        for event in events:
+            summary = event.get('summary', 'Untitled Event')
+            start = event['start'].get('dateTime')
+            end = event['end'].get('dateTime')
+
+            if start and end:
+                start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(ZoneInfo("America/New_York"))
+                end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')).astimezone(ZoneInfo("America/New_York"))
+
+                date_str = start_dt.strftime('%Y-%m-%d')
+                time_str = f"{start_dt.strftime('%-I:%M %p')} – {end_dt.strftime('%-I:%M %p')}"
+                start_hour = start_dt.hour
+                start_minute = start_dt.minute
+                end_hour = end_dt.hour
+                end_minute = end_dt.minute
+            else:
+                date_str = start_date
+                time_str = "All day"
+                start_hour = None
+                start_minute = 0
+                end_hour = None
+                end_minute = 0
+
+            result.append({
+                "date": date_str,
+                "time": time_str,
+                "summary": summary,
+                "id": event.get('id'),
+                "htmlLink": event.get('htmlLink'),
+                "colorId": event.get('colorId'),
+                "start_hour": start_hour,
+                "start_minute": start_minute,
+                "end_hour": end_hour,
+                "end_minute": end_minute
+            })
+
+        return result
+
+    except Exception as e:
+        print(f"Error fetching calendar events: {e}")
+        return []
+
+
 def load_therapists() -> list[dict]:
     """Load the list of therapists from therapists.json."""
     if not THERAPISTS_FILE.exists():

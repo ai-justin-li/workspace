@@ -47,6 +47,24 @@
                 </div>
             </div>
 
+            <!-- Browse Calendar (grid opens inline here) -->
+            <div id="browse-calendar">
+                <div id="browse-prompt">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="section-header">BROWSE CALENDAR</div>
+                        <button onclick="showCalendarView()" 
+                                class="text-teal-400 text-xs px-3 py-1 active:bg-zinc-800 rounded border border-teal-800">
+                            Open Week View
+                        </button>
+                    </div>
+                    <div class="text-xs text-zinc-500">
+                        Tap above to see the full week and check availability across multiple days.
+                    </div>
+                </div>
+                <!-- Grid and controls render here when open (same location as the button) -->
+                <div id="week-grid-host" class="mt-2"></div>
+            </div>
+
             <!-- Booking Form -->
             <div class="space-y-4">
                 <div>
@@ -139,6 +157,7 @@
                     Create Booking
                 </button>
             </div>
+
         </div>
     </div>
 
@@ -218,6 +237,14 @@
             const day = parseInt(yyyymmdd.substring(6, 8), 10);
             const d = new Date(year, month, day);
             return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        }
+
+        // Format a Date object to YYYY-MM-DD using LOCAL date components (not UTC via toISOString)
+        function formatYMD(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
         }
 
         function collectData() {
@@ -383,6 +410,302 @@
 
             // Load upcoming events
             refreshAvailability();
+        }
+
+        // ===== Calendar View Functions (inline time grid) =====
+        let currentWeekOffset = 0;
+        const CALENDAR_HOURS = Array.from({ length: 14 }, (_, i) => 7 + i); // 7:00 AM – 8:00 PM
+        const GRID_START_HOUR = 7;
+        const TOTAL_HOURS = 14;
+        const HOUR_HEIGHT = 38; // pixels per hour — controls vertical density
+
+        // Assign events to horizontal lanes so overlapping ones appear side-by-side
+        function layoutEventsForDay(dayEvents) {
+            if (!dayEvents || dayEvents.length === 0) {
+                return { events: [], numLanes: 1 };
+            }
+
+            // Sort by start time (earlier first). For ties, put longer events first (optional nicety)
+            const sorted = [...dayEvents].sort((a, b) => {
+                const aStart = (a.start_hour || 0) * 60 + (a.start_minute || 0);
+                const bStart = (b.start_hour || 0) * 60 + (b.start_minute || 0);
+                if (aStart !== bStart) return aStart - bStart;
+                const aDur = ((a.end_hour || 0) * 60 + (a.end_minute || 0)) - aStart;
+                const bDur = ((b.end_hour || 0) * 60 + (b.end_minute || 0)) - bStart;
+                return bDur - aDur; // longer first
+            });
+
+            const lanes = [];           // lanes[i] = list of events placed in that lane
+            const laidOut = [];
+
+            for (const ev of sorted) {
+                const startMin = (ev.start_hour || 0) * 60 + (ev.start_minute || 0);
+                const endMin   = (ev.end_hour   || 0) * 60 + (ev.end_minute   || 0);
+
+                // Find the first lane where this event doesn't overlap the last event in that lane
+                let assignedLane = -1;
+                for (let l = 0; l < lanes.length; l++) {
+                    const lastEv = lanes[l][lanes[l].length - 1];
+                    const lastEnd = (lastEv.end_hour || 0) * 60 + (lastEv.end_minute || 0);
+                    if (startMin >= lastEnd) {
+                        assignedLane = l;
+                        break;
+                    }
+                }
+
+                if (assignedLane === -1) {
+                    assignedLane = lanes.length;
+                    lanes.push([]);
+                }
+
+                lanes[assignedLane].push(ev);
+                laidOut.push({
+                    ...ev,
+                    lane: assignedLane
+                });
+            }
+
+            return {
+                events: laidOut,
+                numLanes: Math.max(1, lanes.length)
+            };
+        }
+
+        const GOOGLE_EVENT_COLORS = {
+            "1": "#a4bdfc",  // Lavender
+            "2": "#7ae7bf",  // Sage
+            "3": "#dbadff",  // Grape
+            "4": "#ff887c",  // Flamingo
+            "5": "#fbd75b",  // Banana
+            "6": "#ffb878",  // Tangerine
+            "7": "#46d6db",  // Peacock
+            "8": "#e1e1e1",  // Graphite
+            "9": "#5484ed",  // Blueberry
+            "10": "#51b749", // Basil
+            "11": "#dc2127"  // Tomato
+        };
+
+        function getEventColorHex(colorId) {
+            return GOOGLE_EVENT_COLORS[colorId] || "#64748b"; // fallback slate
+        }
+
+        function showCalendarView() {
+            // Open the grid inline in the same place as the "Open Week View" button
+            document.getElementById('browse-prompt').classList.add('hidden');
+            loadWeek(currentWeekOffset);
+        }
+
+        function hideCalendarView() {
+            // Collapse back to the compact prompt button
+            const host = document.getElementById('week-grid-host');
+            host.innerHTML = '';
+            document.getElementById('browse-prompt').classList.remove('hidden');
+        }
+
+        async function loadWeek(offset) {
+            currentWeekOffset = offset;
+
+            const today = new Date();
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(today.getDate() - today.getDay() + (offset * 7));
+
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(startOfWeek.getDate() + 6);
+
+            const startStr = formatYMD(startOfWeek);
+            const endStr = formatYMD(endOfWeek);
+
+            const weekLabel = `${startOfWeek.toLocaleDateString('en-US', {month:'short', day:'numeric'})} – ${endOfWeek.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})}`;
+
+            const host = document.getElementById('week-grid-host');
+
+            try {
+                const res = await fetch(`${API_BASE}/calendar?start=${startStr}&end=${endStr}`);
+                const data = await res.json();
+
+                if (data.error) {
+                    host.innerHTML = `<div class="text-red-400 text-sm p-3 bg-zinc-950 border border-zinc-800 rounded-2xl">Error: ${data.error}</div>`;
+                    return;
+                }
+
+                renderWeekTimeGrid(data.events || [], startOfWeek, endOfWeek, weekLabel, host);
+
+            } catch (e) {
+                console.error(e);
+                host.innerHTML = `<div class="text-red-400 text-sm p-3 bg-zinc-950 border border-zinc-800 rounded-2xl">Failed to load calendar.</div>`;
+            }
+        }
+
+        function changeWeek(delta) {
+            loadWeek(currentWeekOffset + delta);
+        }
+
+        function renderWeekTimeGrid(events, startOfWeek, endOfWeek, weekLabel, hostEl) {
+            // Group events by YYYY-MM-DD
+            const byDate = {};
+            const allDayByDate = {};
+            events.forEach(ev => {
+                if (!byDate[ev.date]) byDate[ev.date] = [];
+                if (ev.start_hour === null) {
+                    if (!allDayByDate[ev.date]) allDayByDate[ev.date] = [];
+                    allDayByDate[ev.date].push(ev);
+                } else {
+                    byDate[ev.date].push(ev);
+                }
+            });
+
+            // Build 7 day objects
+            const days = [];
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(startOfWeek);
+                d.setDate(startOfWeek.getDate() + i);
+                days.push({
+                    date: d,
+                    key: formatYMD(d),
+                    name: d.toLocaleDateString('en-US', { weekday: 'short' }),
+                    num: d.getDate()
+                });
+            }
+
+            const todayKey = formatYMD(new Date());
+            const columnHeight = TOTAL_HOURS * HOUR_HEIGHT;
+
+            // Pre-compute lane layouts for every day (used for both headers and columns)
+            const layoutByDay = {};
+            days.forEach(day => {
+                const timed = byDate[day.key] || [];
+                layoutByDay[day.key] = layoutEventsForDay(timed);
+            });
+
+            let html = `
+                <div class="bg-zinc-950 border border-zinc-800 rounded-3xl p-3">
+                    <!-- Week navigation -->
+                    <div class="flex items-center justify-between mb-2">
+                        <button onclick="changeWeek(-1)" class="px-3 py-1 bg-zinc-800 active:bg-zinc-700 rounded-xl text-sm">← Prev</button>
+                        <div class="font-semibold text-sm text-center">${weekLabel}</div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="changeWeek(1)" class="px-3 py-1 bg-zinc-800 active:bg-zinc-700 rounded-xl text-sm">Next →</button>
+                            <button onclick="hideCalendarView()" class="px-2.5 py-1 bg-zinc-700 active:bg-zinc-600 rounded-xl text-xs text-white">Close</button>
+                        </div>
+                    </div>
+
+                    <!-- Day headers (aligned with columns below) -->
+                    <div class="flex text-[10px] mb-1" style="min-width: 510px;">
+                        <div class="w-[46px] flex-shrink-0"></div>
+            `;
+
+            days.forEach(day => {
+                const isToday = day.key === todayKey;
+                const thisNumLanes = layoutByDay[day.key].numLanes;
+                const thisMinWidth = Math.max(64, 58 + (thisNumLanes - 1) * 20);
+
+                html += `
+                    <div class="flex-1 text-center px-0.5 ${isToday ? 'text-teal-400' : 'text-zinc-200'}" style="min-width: ${thisMinWidth}px;">
+                        <div class="font-semibold">${day.name}</div>
+                        <div class="text-[9px] text-zinc-400">${day.num}</div>
+                    </div>
+                `;
+            });
+
+            html += `</div>`;
+
+            // Main body: time gutter + day columns with absolute events
+            html += `
+                <div class="flex overflow-x-auto -mx-1 px-1 pb-1" style="min-width: 510px;">
+                    <!-- Time gutter -->
+                    <div class="w-[46px] flex-shrink-0 text-[10px] text-zinc-400 font-mono border-r border-zinc-800 pr-1">
+            `;
+
+            CALENDAR_HOURS.forEach((hour, idx) => {
+                const hourLabel = hour === 12 ? '12 PM' : (hour < 12 ? `${hour} AM` : `${hour-12} PM`);
+                html += `<div style="height:${HOUR_HEIGHT}px" class="flex items-start justify-end pt-0.5 pr-1">${hourLabel}</div>`;
+            });
+
+            html += `</div>`;
+
+            // Day columns
+            days.forEach(day => {
+                const dayEvents = byDate[day.key] || [];
+                const allDayEvents = allDayByDate[day.key] || [];
+                const isToday = day.key === todayKey;
+
+                const thisLayout = layoutByDay[day.key];
+                const thisNumLanes = thisLayout.numLanes;
+                const thisMinWidth = Math.max(64, 58 + (thisNumLanes - 1) * 20);
+
+                html += `
+                    <div class="flex-1 relative border-l border-zinc-700 bg-zinc-950 overflow-hidden"
+                         style="min-width: ${thisMinWidth}px; height: ${columnHeight}px; ${isToday ? 'box-shadow: inset 0 0 0 1px rgb(52 211 153 / 0.3)' : ''}">
+                `;
+
+                // Subtle hour grid lines for visual time reference
+                for (let i = 1; i < TOTAL_HOURS; i++) {
+                    html += `<div class="absolute left-0 right-0 border-t border-zinc-800/70" style="top: ${i * HOUR_HEIGHT}px"></div>`;
+                }
+
+                // All-day events as a top banner
+                if (allDayEvents.length > 0) {
+                    let adHtml = '';
+                    allDayEvents.forEach(ev => {
+                        const hex = getEventColorHex(ev.colorId);
+                        const short = (ev.summary || 'All day').slice(0, 18);
+                        adHtml += `<div class="text-[9px] px-1 py-px mb-px rounded text-zinc-950 font-medium truncate" style="background:${hex}">${short}</div>`;
+                    });
+                    html += `<div class="absolute left-0 right-0 top-0 z-10 bg-zinc-900/80 px-0.5 pt-0.5" style="max-height: 42px; overflow:hidden;">${adHtml}</div>`;
+                }
+
+                // Timed events laid out in lanes so overlapping ones are side-by-side
+                const layout = thisLayout;
+
+                layout.events.forEach((ev, idx) => {
+                    const startH = ev.start_hour || 0;
+                    const startM = ev.start_minute || 0;
+                    const endH   = ev.end_hour   || (startH + 1);
+                    const endM   = ev.end_minute || 0;
+
+                    const startFraction = (startH - GRID_START_HOUR) + (startM / 60);
+                    const endFraction   = (endH   - GRID_START_HOUR) + (endM   / 60);
+
+                    let top = Math.max(0, startFraction * HOUR_HEIGHT);
+                    let height = Math.max(22, (endFraction - startFraction) * HOUR_HEIGHT);
+
+                    const lane = ev.lane || 0;
+                    const laneWidthPct = 100 / thisNumLanes;
+                    const leftPct = lane * laneWidthPct;
+
+                    // Fixed pixel gap between side-by-side events for readability
+                    const gapPx = 3;
+
+                    const hex = getEventColorHex(ev.colorId);
+                    const shortTitle = (ev.summary || '').length > 18 ? (ev.summary || '').slice(0, 17) + '…' : (ev.summary || '');
+
+                    // Show time range inside when the block is reasonably tall
+                    const showTime = height > 42;
+                    const timeLine = showTime ? `<div class="opacity-80 text-[8px] leading-none mt-0.5">${ev.time}</div>` : '';
+
+                    html += `
+                        <div class="absolute rounded-lg px-1 py-0.5 shadow-sm overflow-hidden text-zinc-950"
+                             style="top: ${top}px; height: ${height}px; left: calc(${leftPct}% + ${gapPx}px); width: calc(${laneWidthPct}% - ${gapPx * 2}px); background-color: ${hex}; z-index: ${10 + idx};"
+                             title="${ev.summary} (${ev.time})">
+                            <div class="text-[9px] font-medium leading-tight">${shortTitle}</div>
+                            ${timeLine}
+                        </div>
+                    `;
+                });
+
+                html += `</div>`; // close day column
+            });
+
+            html += `
+                </div> <!-- end flex body -->
+
+                <div class="mt-2 text-[9px] text-zinc-500 px-1">
+                    Blocks show exact duration • Empty space = available • Colors = Google Calendar
+                </div>
+            </div>
+            `;
+
+            hostEl.innerHTML = html;
         }
     </script>
 </body>
