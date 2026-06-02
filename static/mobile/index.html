@@ -62,7 +62,7 @@
                     </div>
                 </div>
                 <!-- Grid and controls render here when open (same location as the button) -->
-                <div id="week-grid-host" class="mt-2"></div>
+                <div id="week-grid-host" class="mt-2 overflow-x-hidden"></div>
             </div>
 
             <!-- Booking Form -->
@@ -158,6 +158,38 @@
                 </button>
             </div>
 
+        </div>
+    </div>
+
+    <!-- Event Detail Modal (bottom sheet style for mobile) -->
+    <div id="event-detail-modal" class="hidden fixed inset-0 z-[100] flex items-end justify-center bg-black/60" onclick="if (event.target.id === 'event-detail-modal') hideEventModal()">
+        <div class="w-full max-w-lg bg-zinc-900 border-t border-zinc-700 rounded-t-3xl p-4 pb-8" onclick="event.stopImmediatePropagation()">
+            <div class="flex justify-between items-center mb-3">
+                <div class="font-semibold text-lg">Appointment Details</div>
+                <button onclick="hideEventModal()" class="text-zinc-400 active:text-white px-3 py-1 text-xl leading-none">×</button>
+            </div>
+
+            <div id="modal-event-content" class="space-y-3 text-sm">
+                <!-- Populated by JS -->
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mt-5">
+                <button onclick="bookAroundEvent('before')" 
+                        class="bg-zinc-800 active:bg-zinc-700 text-white py-3 rounded-2xl text-sm font-medium">
+                    Book Before
+                </button>
+                <button onclick="bookAroundEvent('after')" 
+                        class="bg-zinc-800 active:bg-zinc-700 text-white py-3 rounded-2xl text-sm font-medium">
+                    Book After
+                </button>
+            </div>
+
+            <div class="mt-3">
+                <button onclick="openInGoogleCalendar()" 
+                        class="w-full bg-zinc-700 active:bg-zinc-600 text-zinc-200 py-2.5 rounded-2xl text-xs">
+                    View in Google Calendar
+                </button>
+            </div>
         </div>
     </div>
 
@@ -471,6 +503,124 @@
             };
         }
 
+        // Calculate how busy each hour is (for density shading)
+        function calculateHourDensity(dayEvents) {
+            const density = Array(TOTAL_HOURS).fill(0);
+            dayEvents.forEach(ev => {
+                if (!ev.start_hour || ev.start_hour === null) return;
+                const startIdx = Math.max(0, ev.start_hour - GRID_START_HOUR);
+                const endIdx = Math.min(TOTAL_HOURS - 1, (ev.end_hour || ev.start_hour + 1) - GRID_START_HOUR);
+
+                for (let h = startIdx; h <= endIdx; h++) {
+                    density[h] = Math.max(density[h], 1); // simple count of active events
+                }
+            });
+            // Better: count concurrent at the start of each hour
+            // For simplicity we use a rough "max concurrent in window"
+            return density;
+        }
+
+        // Prefill the main booking form from the calendar
+        function prefillBooking(yyyymmdd, hhmm) {
+            const dateInput = document.getElementById('date');
+            const timeInput = document.getElementById('time');
+
+            if (dateInput) dateInput.value = yyyymmdd;
+            if (timeInput) timeInput.value = hhmm;
+
+            // Scroll to the form
+            const formSection = document.querySelector('#browse-calendar') || document.body;
+            formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            // Briefly highlight the form
+            const bookingCard = document.querySelector('#browse-calendar')?.closest('.bg-zinc-900');
+            if (bookingCard) {
+                bookingCard.classList.add('ring-2', 'ring-teal-500');
+                setTimeout(() => bookingCard.classList.remove('ring-2', 'ring-teal-500'), 1600);
+            }
+        }
+
+        // Show rich event detail bottom sheet
+        let currentModalEvent = null;
+
+        function showEventModal(ev) {
+            currentModalEvent = ev;
+            const content = document.getElementById('modal-event-content');
+            if (!content) return;
+
+            const hex = getEventColorHex(ev.colorId);
+            const timeStr = ev.time || 'Time not available';
+
+            content.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <div class="w-5 h-5 rounded-full flex-shrink-0" style="background-color: ${hex}"></div>
+                    <div class="font-semibold text-base">${ev.summary || 'Untitled Event'}</div>
+                </div>
+                <div class="pl-8 text-zinc-300">${timeStr}</div>
+
+                <div class="pl-8 pt-1 text-xs text-zinc-500">
+                    Color ID: ${ev.colorId || 'default'} • Google Calendar event
+                </div>
+            `;
+
+            document.getElementById('event-detail-modal').classList.remove('hidden');
+            document.getElementById('event-detail-modal').classList.add('flex');
+        }
+
+        function hideEventModal() {
+            const modal = document.getElementById('event-detail-modal');
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+
+        function bookAroundEvent(direction) {
+            if (!currentModalEvent) return;
+            hideEventModal();
+
+            const dateStr = currentModalEvent.date;
+            let startH = currentModalEvent.start_hour || 9;
+            let startM = currentModalEvent.start_minute || 0;
+
+            if (direction === 'before') {
+                startM -= 15;
+                if (startM < 0) { startM += 60; startH -= 1; }
+            } else {
+                // After the event
+                startH = currentModalEvent.end_hour || (startH + 1);
+                startM = currentModalEvent.end_minute || 0;
+            }
+
+            const yyyymmdd = dateStr.replace(/-/g, '');
+            const hhmm = String(startH).padStart(2, '0') + String(startM).padStart(2, '0');
+
+            prefillBooking(yyyymmdd, hhmm);
+        }
+
+        function openInGoogleCalendar() {
+            if (currentModalEvent && currentModalEvent.htmlLink) {
+                window.open(currentModalEvent.htmlLink, '_blank');
+            }
+            hideEventModal();
+        }
+
+        // Simple next-available text for a day
+        function getNextAvailableText(dayEvents) {
+            if (!dayEvents || dayEvents.length === 0) return "Wide open";
+            const busyHours = new Set();
+            dayEvents.forEach(ev => {
+                if (ev.start_hour != null) {
+                    for (let h = ev.start_hour; h <= (ev.end_hour || ev.start_hour); h++) {
+                        busyHours.add(h);
+                    }
+                }
+            });
+            const freeCount = TOTAL_HOURS - busyHours.size;
+            if (freeCount >= 8) return "Very open";
+            if (freeCount >= 5) return "Quite open";
+            if (freeCount >= 3) return "Some slots";
+            return "Busy day";
+        }
+
         const GOOGLE_EVENT_COLORS = {
             "1": "#a4bdfc",  // Lavender
             "2": "#7ae7bf",  // Sage
@@ -578,7 +728,7 @@
             });
 
             let html = `
-                <div class="bg-zinc-950 border border-zinc-800 rounded-3xl p-3">
+                <div class="bg-zinc-950 border border-zinc-800 rounded-3xl p-3 overflow-x-hidden">
                     <!-- Week navigation -->
                     <div class="flex items-center justify-between mb-2">
                         <button onclick="changeWeek(-1)" class="px-3 py-1 bg-zinc-800 active:bg-zinc-700 rounded-xl text-sm">← Prev</button>
@@ -590,19 +740,24 @@
                     </div>
 
                     <!-- Day headers (aligned with columns below) -->
-                    <div class="flex text-[10px] mb-1" style="min-width: 510px;">
-                        <div class="w-[46px] flex-shrink-0"></div>
+                    <div class="flex text-[10px] mb-1">
+                        <div class="w-[40px] flex-shrink-0"></div>
             `;
 
             days.forEach(day => {
                 const isToday = day.key === todayKey;
                 const thisNumLanes = layoutByDay[day.key].numLanes;
-                const thisMinWidth = Math.max(64, 58 + (thisNumLanes - 1) * 20);
+                const baseCol = 50;
+                const growth = 12;
+                const maxCol = 78;
+                const thisMinWidth = Math.min(Math.max(baseCol, baseCol + (thisNumLanes - 1) * growth), maxCol);
+                const nextAvail = getNextAvailableText(byDate[day.key] || []);
 
                 html += `
                     <div class="flex-1 text-center px-0.5 ${isToday ? 'text-teal-400' : 'text-zinc-200'}" style="min-width: ${thisMinWidth}px;">
                         <div class="font-semibold">${day.name}</div>
                         <div class="text-[9px] text-zinc-400">${day.num}</div>
+                        <div class="text-[8px] text-emerald-400/90 mt-0.5">${nextAvail}</div>
                     </div>
                 `;
             });
@@ -611,14 +766,14 @@
 
             // Main body: time gutter + day columns with absolute events
             html += `
-                <div class="flex overflow-x-auto -mx-1 px-1 pb-1" style="min-width: 510px;">
+                <div class="flex overflow-x-auto -mx-1 px-1 pb-1 w-full max-w-full">
                     <!-- Time gutter -->
-                    <div class="w-[46px] flex-shrink-0 text-[10px] text-zinc-400 font-mono border-r border-zinc-800 pr-1">
+                    <div class="w-[40px] flex-shrink-0 text-[10px] text-zinc-400 font-mono border-r border-zinc-800 pr-1">
             `;
 
             CALENDAR_HOURS.forEach((hour, idx) => {
                 const hourLabel = hour === 12 ? '12 PM' : (hour < 12 ? `${hour} AM` : `${hour-12} PM`);
-                html += `<div style="height:${HOUR_HEIGHT}px" class="flex items-start justify-end pt-0.5 pr-1">${hourLabel}</div>`;
+                html += `<div style="height:${HOUR_HEIGHT}px" class="flex items-start justify-end pt-0.5 pr-0.5">${hourLabel}</div>`;
             });
 
             html += `</div>`;
@@ -631,16 +786,40 @@
 
                 const thisLayout = layoutByDay[day.key];
                 const thisNumLanes = thisLayout.numLanes;
-                const thisMinWidth = Math.max(64, 58 + (thisNumLanes - 1) * 20);
+                // More mobile-friendly column sizing: smaller base + gentler growth + hard cap
+                const baseCol = 50;
+                const growth = 12;
+                const maxCol = 78;
+                const thisMinWidth = Math.min(Math.max(baseCol, baseCol + (thisNumLanes - 1) * growth), maxCol);
+
+                // Calculate density for shading
+                const density = calculateHourDensity(dayEvents);
+                const nextAvailable = getNextAvailableText(dayEvents);
+
+                // Add next available badge in header (we'll inject it via a second pass or accept that headers are static for now)
+                // For simplicity, we'll enhance the header row in a follow-up small edit if needed.
 
                 html += `
-                    <div class="flex-1 relative border-l border-zinc-700 bg-zinc-950 overflow-hidden"
+                    <div class="day-column flex-1 relative border-l border-zinc-700 bg-zinc-950 overflow-hidden"
+                         data-date="${day.key}"
                          style="min-width: ${thisMinWidth}px; height: ${columnHeight}px; ${isToday ? 'box-shadow: inset 0 0 0 1px rgb(52 211 153 / 0.3)' : ''}">
                 `;
 
-                // Subtle hour grid lines for visual time reference
+                // Hour rows with density-based background shading
+                CALENDAR_HOURS.forEach((hour, hIdx) => {
+                    const d = density[hIdx] || 0;
+                    let shade = 'bg-zinc-950';
+                    if (d >= 3) shade = 'bg-orange-950/60';
+                    else if (d >= 2) shade = 'bg-amber-900/40';
+                    else if (d >= 1) shade = 'bg-teal-900/25';
+
+                    const top = hIdx * HOUR_HEIGHT;
+                    html += `<div class="absolute left-0 right-0 ${shade}" style="top: ${top}px; height: ${HOUR_HEIGHT}px; border-top: 1px solid rgba(63,63,70,0.5)"></div>`;
+                });
+
+                // Subtle vertical lines for hour separation (on top of shading)
                 for (let i = 1; i < TOTAL_HOURS; i++) {
-                    html += `<div class="absolute left-0 right-0 border-t border-zinc-800/70" style="top: ${i * HOUR_HEIGHT}px"></div>`;
+                    html += `<div class="absolute left-0 right-0 border-t border-zinc-800/60 pointer-events-none" style="top: ${i * HOUR_HEIGHT}px"></div>`;
                 }
 
                 // All-day events as a top banner
@@ -648,13 +827,13 @@
                     let adHtml = '';
                     allDayEvents.forEach(ev => {
                         const hex = getEventColorHex(ev.colorId);
-                        const short = (ev.summary || 'All day').slice(0, 18);
+                        const short = (ev.summary || 'All day').slice(0, 16);
                         adHtml += `<div class="text-[9px] px-1 py-px mb-px rounded text-zinc-950 font-medium truncate" style="background:${hex}">${short}</div>`;
                     });
-                    html += `<div class="absolute left-0 right-0 top-0 z-10 bg-zinc-900/80 px-0.5 pt-0.5" style="max-height: 42px; overflow:hidden;">${adHtml}</div>`;
+                    html += `<div class="absolute left-0 right-0 top-0 z-10 bg-zinc-900/85 px-0.5 pt-0.5" style="max-height: 38px; overflow:hidden;">${adHtml}</div>`;
                 }
 
-                // Timed events laid out in lanes so overlapping ones are side-by-side
+                // Timed events as duration-spanning, side-by-side bubbles
                 const layout = thisLayout;
 
                 layout.events.forEach((ev, idx) => {
@@ -667,27 +846,28 @@
                     const endFraction   = (endH   - GRID_START_HOUR) + (endM   / 60);
 
                     let top = Math.max(0, startFraction * HOUR_HEIGHT);
-                    let height = Math.max(22, (endFraction - startFraction) * HOUR_HEIGHT);
+                    let height = Math.max(20, (endFraction - startFraction) * HOUR_HEIGHT);
 
                     const lane = ev.lane || 0;
                     const laneWidthPct = 100 / thisNumLanes;
                     const leftPct = lane * laneWidthPct;
 
-                    // Fixed pixel gap between side-by-side events for readability
-                    const gapPx = 3;
-
+                    const gapPx = 2.5;
                     const hex = getEventColorHex(ev.colorId);
-                    const shortTitle = (ev.summary || '').length > 18 ? (ev.summary || '').slice(0, 17) + '…' : (ev.summary || '');
 
-                    // Show time range inside when the block is reasonably tall
-                    const showTime = height > 42;
+                    // Smarter label for narrow lanes
+                    let label = ev.summary || '';
+                    if (thisNumLanes >= 3 && label.length > 11) label = label.slice(0, 10) + '…';
+                    else if (label.length > 16) label = label.slice(0, 15) + '…';
+
+                    const showTime = height > 38 && thisNumLanes <= 2;
                     const timeLine = showTime ? `<div class="opacity-80 text-[8px] leading-none mt-0.5">${ev.time}</div>` : '';
 
                     html += `
-                        <div class="absolute rounded-lg px-1 py-0.5 shadow-sm overflow-hidden text-zinc-950"
-                             style="top: ${top}px; height: ${height}px; left: calc(${leftPct}% + ${gapPx}px); width: calc(${laneWidthPct}% - ${gapPx * 2}px); background-color: ${hex}; z-index: ${10 + idx};"
-                             title="${ev.summary} (${ev.time})">
-                            <div class="text-[9px] font-medium leading-tight">${shortTitle}</div>
+                        <div class="event-bubble absolute rounded-lg px-1 py-0.5 shadow-sm overflow-hidden text-zinc-950 cursor-pointer active:scale-[0.985]"
+                             data-event-id="${ev.id || ''}"
+                             style="top: ${top}px; height: ${height}px; left: calc(${leftPct}% + ${gapPx}px); width: calc(${laneWidthPct}% - ${gapPx * 2}px); background-color: ${hex}; z-index: ${10 + idx};">
+                            <div class="text-[9px] font-medium leading-tight">${label}</div>
                             ${timeLine}
                         </div>
                     `;
@@ -699,13 +879,106 @@
             html += `
                 </div> <!-- end flex body -->
 
-                <div class="mt-2 text-[9px] text-zinc-500 px-1">
-                    Blocks show exact duration • Empty space = available • Colors = Google Calendar
+                <!-- Compact legend + tips -->
+                <div class="mt-3 px-1 text-[9px] text-zinc-500 flex flex-wrap gap-x-4 gap-y-1">
+                    <span>Tap empty space to book</span>
+                    <span>Tap colored block for details</span>
+                </div>
+
+                <!-- Mini color legend -->
+                <div class="mt-2 px-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[8px] text-zinc-500">
+                    <span><span class="inline-block w-2 h-2 rounded-sm align-middle mr-0.5" style="background:#7ae7bf"></span>Sage = 2-person</span>
+                    <span><span class="inline-block w-2 h-2 rounded-sm align-middle mr-0.5" style="background:#51b749"></span>Basil = 3+</span>
                 </div>
             </div>
             `;
 
             hostEl.innerHTML = html;
+
+            // === Post-render enhancements (click handlers, current time, swipe) ===
+
+            // 1. Make day columns clickable for pre-filling time slots
+            const dayColumns = hostEl.querySelectorAll('.day-column');
+            dayColumns.forEach((col, dayIndex) => {
+                const day = days[dayIndex];
+                if (!day) return;
+
+                col.addEventListener('click', (e) => {
+                    // Ignore clicks on actual event bubbles
+                    if (e.target.closest('.event-bubble')) return;
+
+                    const rect = col.getBoundingClientRect();
+                    const clickY = e.clientY - rect.top;
+                    const hourIndex = Math.floor(clickY / HOUR_HEIGHT);
+                    const clickedHour = GRID_START_HOUR + hourIndex;
+
+                    // Round to nearest 15 minutes for practical booking
+                    const minutes = Math.round(((clickY % HOUR_HEIGHT) / HOUR_HEIGHT) * 60 / 15) * 15;
+
+                    const yyyymmdd = day.key.replace(/-/g, '');
+                    const hhmm = String(clickedHour).padStart(2, '0') + String(minutes).padStart(2, '0');
+
+                    prefillBooking(yyyymmdd, hhmm);
+                });
+            });
+
+            // 2. Make event bubbles open the detail modal
+            const bubbles = hostEl.querySelectorAll('.event-bubble');
+            bubbles.forEach(bubble => {
+                bubble.addEventListener('click', (e) => {
+                    e.stopImmediatePropagation();
+                    const evId = bubble.dataset.eventId;
+                    // Find the original event data
+                    const ev = events.find(e => e.id === evId) || {};
+                    showEventModal(ev);
+                });
+            });
+
+            // 3. Add current time indicator if today is in this week
+            const now = new Date();
+            const nowKey = formatYMD(now);
+            const todayCol = hostEl.querySelector(`[data-date="${nowKey}"]`);
+            if (todayCol) {
+                const currentHour = now.getHours();
+                const currentMinute = now.getMinutes();
+                if (currentHour >= GRID_START_HOUR && currentHour < GRID_START_HOUR + TOTAL_HOURS) {
+                    const hourOffset = currentHour - GRID_START_HOUR + (currentMinute / 60);
+                    const topPx = Math.round(hourOffset * HOUR_HEIGHT);
+
+                    const line = document.createElement('div');
+                    line.className = 'absolute left-0 right-0 z-20 pointer-events-none';
+                    line.style.top = `${topPx}px`;
+                    line.style.height = '2px';
+                    line.style.background = 'linear-gradient(to right, #f87171, #ef4444)';
+                    line.innerHTML = `
+                        <div class="absolute -left-1 -top-[5px] text-[9px] bg-red-500 text-white px-1 rounded font-mono leading-none" style="padding-top:1px">
+                            now
+                        </div>
+                    `;
+                    todayCol.appendChild(line);
+                }
+            }
+
+            // 4. Add swipe support for week navigation
+            let touchStartX = 0;
+            const gridBody = hostEl.querySelector('.flex.overflow-x-auto');
+            if (gridBody) {
+                gridBody.addEventListener('touchstart', (e) => {
+                    touchStartX = e.changedTouches[0].screenX;
+                }, { passive: true });
+
+                gridBody.addEventListener('touchend', (e) => {
+                    const touchEndX = e.changedTouches[0].screenX;
+                    const diff = touchStartX - touchEndX;
+                    if (Math.abs(diff) > 60) {
+                        if (diff > 0) {
+                            changeWeek(1);   // swipe left → next week
+                        } else {
+                            changeWeek(-1);  // swipe right → previous week
+                        }
+                    }
+                }, { passive: true });
+            }
         }
     </script>
 </body>

@@ -321,7 +321,9 @@ if "booking_data" in st.session_state:
             st.info("ℹ️ Other appointments overlap this time slot, but they are with different therapists. This is acceptable.")
             st.write("**Overlapping appointments:**")
             for c in analysis["conflicts"]:
-                st.write(f"- {c['summary']} — {c['start']}")
+                ther = c.get("assigned_therapist")
+                ther_str = f" [Therapist: {ther}]" if ther else ""
+                st.write(f"- {c['summary']}{ther_str} — {c['start']}")
 
         else:
             st.success("✅ No conflicts. Time slot is clear.")

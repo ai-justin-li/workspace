@@ -385,11 +385,8 @@ def _get_therapist_slots_from_summary(summary: str) -> int:
     """
     Parse a calendar event title to determine how many therapist slots it consumes.
 
-    Examples:
-    - "Appt x3: John" → 3
-    - "Yenni - Appt x2: Andy" → 2
-    - "Appt: Maria" → 1
-    - Any title containing "couples" without xN → 2
+    This relies on the title (summary) because titles are formatted to encode
+    booking size (xN for multiple massages, C for couples).
     """
     if not summary:
         return 1
@@ -410,6 +407,29 @@ def _get_therapist_slots_from_summary(summary: str) -> int:
     return 1
 
 
+def _get_assigned_therapist_from_description(description: str) -> str | None:
+    """
+    Extract the assigned therapist name from the calendar event's description (notes).
+
+    The description is formatted as:
+        Customer: ...
+        Therapist: Julie
+        Notes: ...
+
+    Returns the therapist name, or None if not specified / Unassigned.
+    This is the authoritative source for "which therapist" an existing booking uses.
+    """
+    if not description:
+        return None
+    match = re.search(r'Therapist:\s*([^\n\r]+)', description, re.IGNORECASE)
+    if not match:
+        return None
+    name = match.group(1).strip()
+    if not name or name.lower() in ('unassigned', 'none', ''):
+        return None
+    return name
+
+
 def analyze_booking_conflicts(start_dt, end_dt, requested_therapist_name=None, num_massages=1, is_couples=False):
     """
     Thoroughly analyze potential conflicts for a new booking.
@@ -425,6 +445,14 @@ def analyze_booking_conflicts(start_dt, end_dt, requested_therapist_name=None, n
     So a booking for 2 couples massages consumes 4 therapist slots.
 
     Overlaps with *different* therapists are acceptable as long as total capacity is not exceeded.
+
+    Important:
+    - Slot counts (for capacity) are parsed from the event **title** (summary), which encodes
+      multiplicity via "Appt xN" or "couples".
+    - Specific therapist assignment (for per-therapist conflicts) is read from the event
+      **description** (notes field), which contains "Therapist: Name".
+      We deliberately do NOT scan titles for therapist names, because client names
+      can match therapist names (e.g. a customer named "Julie").
 
     Returns a rich analysis dict.
     """
@@ -450,16 +478,23 @@ def analyze_booking_conflicts(start_dt, end_dt, requested_therapist_name=None, n
 
         for event in events:
             summary = event.get('summary', 'Untitled Event')
+            description = event.get('description', '')
             start = event['start'].get('dateTime', event['start'].get('date'))
             html_link = event.get('htmlLink', '')
 
             conflicts.append({
                 'summary': summary,
+                'description': description,
                 'start': start,
                 'htmlLink': html_link
             })
 
+        # Enrich with assigned therapist (read from description/notes, not title)
+        for c in conflicts:
+            c['assigned_therapist'] = _get_assigned_therapist_from_description(c.get('description', ''))
+
         # Calculate actual therapist slots currently in use by parsing titles
+        # (titles encode xN / couples size; therapist identity comes from description)
         current_slots_used = sum(
             _get_therapist_slots_from_summary(c['summary']) for c in conflicts
         )
@@ -470,9 +505,11 @@ def analyze_booking_conflicts(start_dt, end_dt, requested_therapist_name=None, n
         conflicting_therapist = None
 
         if requested_therapist_name:
+            # Check using the therapist assigned in the event's description (notes),
+            # NOT by scanning the title/summary (client names can match therapist names).
             for event in conflicts:
-                summary = event['summary']
-                if requested_therapist_name.lower() in summary.lower():
+                assigned = event.get('assigned_therapist')
+                if assigned and assigned.lower() == requested_therapist_name.lower():
                     therapist_conflict = True
                     conflicting_therapist = requested_therapist_name
                     break
@@ -732,7 +769,9 @@ def main():
                 print("\nOther appointments in this time slot (different therapists — acceptable):")
 
             for c in analysis['conflicts']:
-                print(f"  • {c['summary']}")
+                ther = c.get('assigned_therapist')
+                ther_str = f" [Therapist: {ther}]" if ther else ""
+                print(f"  • {c['summary']}{ther_str}")
                 print(f"    Starts: {c['start']}")
                 if c.get('htmlLink'):
                     print(f"    Link:   {c['htmlLink']}")
