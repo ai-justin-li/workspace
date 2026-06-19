@@ -51,14 +51,14 @@
             <div id="browse-calendar">
                 <div id="browse-prompt">
                     <div class="flex items-center justify-between mb-2">
-                        <div class="section-header">BROWSE CALENDAR</div>
+                        <div class="section-header">CALENDAR</div>
                         <button onclick="showCalendarView()" 
                                 class="text-teal-400 text-xs px-3 py-1 active:bg-zinc-800 rounded border border-teal-800">
-                            Open Week View
+                            View Calendar
                         </button>
                     </div>
                     <div class="text-xs text-zinc-500">
-                        Tap above to see the full week and check availability across multiple days.
+                        Tap to see today + next 4 days of availability (future dates only). Fits on screen.
                     </div>
                 </div>
                 <!-- Grid and controls render here when open (same location as the button) -->
@@ -444,8 +444,8 @@
             refreshAvailability();
         }
 
-        // ===== Calendar View Functions (inline time grid) =====
-        let currentWeekOffset = 0;
+        // ===== Calendar View Functions (5-day future view, fits on screen, no internal h-scroll) =====
+        let currentCalendarOffset = 0;
         const CALENDAR_HOURS = Array.from({ length: 14 }, (_, i) => 7 + i); // 7:00 AM – 8:00 PM
         const GRID_START_HOUR = 7;
         const TOTAL_HOURS = 14;
@@ -640,9 +640,10 @@
         }
 
         function showCalendarView() {
-            // Open the grid inline in the same place as the "Open Week View" button
+            // Open the grid inline in the same place as the "View Calendar" button
             document.getElementById('browse-prompt').classList.add('hidden');
-            loadWeek(currentWeekOffset);
+            currentCalendarOffset = 0;
+            loadCalendarView(currentCalendarOffset);
         }
 
         function hideCalendarView() {
@@ -652,20 +653,47 @@
             document.getElementById('browse-prompt').classList.remove('hidden');
         }
 
-        async function loadWeek(offset) {
-            currentWeekOffset = offset;
+        function addDays(baseDate, days) {
+            const d = new Date(baseDate);
+            d.setDate(d.getDate() + days);
+            return d;
+        }
+
+        function formatShort(d) {
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        async function loadCalendarView(offset) {
+            // Clamp so we never show dates before today
+            if (offset < 0) offset = 0;
+            currentCalendarOffset = offset;
 
             const today = new Date();
-            const startOfWeek = new Date(today);
-            startOfWeek.setDate(today.getDate() - today.getDay() + (offset * 7));
+            today.setHours(0, 0, 0, 0);
 
-            const endOfWeek = new Date(startOfWeek);
-            endOfWeek.setDate(startOfWeek.getDate() + 6);
+            const startDate = addDays(today, offset * 5);
 
-            const startStr = formatYMD(startOfWeek);
-            const endStr = formatYMD(endOfWeek);
+            // Build exactly 5 future-or-today days
+            const days = [];
+            for (let i = 0; i < 5; i++) {
+                const d = addDays(startDate, i);
+                const key = formatYMD(d);
+                days.push({
+                    date: d,
+                    key: key,
+                    name: d.toLocaleDateString('en-US', { weekday: 'short' }),
+                    num: d.getDate(),
+                    isBaseToday: (offset === 0 && i === 0)
+                });
+            }
 
-            const weekLabel = `${startOfWeek.toLocaleDateString('en-US', {month:'short', day:'numeric'})} – ${endOfWeek.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})}`;
+            const startStr = days[0].key;
+            const endStr = days[4].key;
+
+            let rangeLabel = `${formatShort(days[0].date)} – ${formatShort(days[4].date)}`;
+            if (offset === 0) {
+                rangeLabel = `Today – ${formatShort(days[4].date)}`;
+            }
 
             const host = document.getElementById('week-grid-host');
 
@@ -678,7 +706,7 @@
                     return;
                 }
 
-                renderWeekTimeGrid(data.events || [], startOfWeek, endOfWeek, weekLabel, host);
+                renderCalendarGrid(data.events || [], days, rangeLabel, host, offset);
 
             } catch (e) {
                 console.error(e);
@@ -686,11 +714,11 @@
             }
         }
 
-        function changeWeek(delta) {
-            loadWeek(currentWeekOffset + delta);
+        function changeCalendar(delta) {
+            loadCalendarView(currentCalendarOffset + delta);
         }
 
-        function renderWeekTimeGrid(events, startOfWeek, endOfWeek, weekLabel, hostEl) {
+        function renderCalendarGrid(events, days, rangeLabel, hostEl, currentOffset) {
             // Group events by YYYY-MM-DD
             const byDate = {};
             const allDayByDate = {};
@@ -704,19 +732,6 @@
                 }
             });
 
-            // Build 7 day objects
-            const days = [];
-            for (let i = 0; i < 7; i++) {
-                const d = new Date(startOfWeek);
-                d.setDate(startOfWeek.getDate() + i);
-                days.push({
-                    date: d,
-                    key: formatYMD(d),
-                    name: d.toLocaleDateString('en-US', { weekday: 'short' }),
-                    num: d.getDate()
-                });
-            }
-
             const todayKey = formatYMD(new Date());
             const columnHeight = TOTAL_HOURS * HOUR_HEIGHT;
 
@@ -729,34 +744,33 @@
 
             let html = `
                 <div class="bg-zinc-950 border border-zinc-800 rounded-3xl p-3 overflow-x-hidden">
-                    <!-- Week navigation -->
+                    <!-- 5-day navigation (no internal horizontal scroll) -->
                     <div class="flex items-center justify-between mb-2">
-                        <button onclick="changeWeek(-1)" class="px-3 py-1 bg-zinc-800 active:bg-zinc-700 rounded-xl text-sm">← Prev</button>
-                        <div class="font-semibold text-sm text-center">${weekLabel}</div>
+                        <button onclick="changeCalendar(-1)" class="px-3 py-1 bg-zinc-800 active:bg-zinc-700 rounded-xl text-sm" ${currentOffset === 0 ? ' disabled style="opacity:0.4;pointer-events:none"' : ''}>← Prev 5</button>
+                        <div class="font-semibold text-sm text-center">${rangeLabel}</div>
                         <div class="flex items-center gap-2">
-                            <button onclick="changeWeek(1)" class="px-3 py-1 bg-zinc-800 active:bg-zinc-700 rounded-xl text-sm">Next →</button>
+                            <button onclick="changeCalendar(1)" class="px-3 py-1 bg-zinc-800 active:bg-zinc-700 rounded-xl text-sm">Next 5 →</button>
                             <button onclick="hideCalendarView()" class="px-2.5 py-1 bg-zinc-700 active:bg-zinc-600 rounded-xl text-xs text-white">Close</button>
                         </div>
                     </div>
 
-                    <!-- Day headers (aligned with columns below) -->
-                    <div class="flex text-[10px] mb-1">
+                    <!-- Day headers (5 equal columns that fit the page) -->
+                    <div class="flex text-[10px] mb-1 w-full">
                         <div class="w-[40px] flex-shrink-0"></div>
             `;
 
             days.forEach(day => {
                 const isToday = day.key === todayKey;
-                const thisNumLanes = layoutByDay[day.key].numLanes;
-                const baseCol = 50;
-                const growth = 12;
-                const maxCol = 78;
-                const thisMinWidth = Math.min(Math.max(baseCol, baseCol + (thisNumLanes - 1) * growth), maxCol);
                 const nextAvail = getNextAvailableText(byDate[day.key] || []);
 
+                let dayLabel = `${day.name} ${day.num}`;
+                if (day.isBaseToday) {
+                    dayLabel = `Today ${day.num}`;
+                }
+
                 html += `
-                    <div class="flex-1 text-center px-0.5 ${isToday ? 'text-teal-400' : 'text-zinc-200'}" style="min-width: ${thisMinWidth}px;">
-                        <div class="font-semibold">${day.name}</div>
-                        <div class="text-[9px] text-zinc-400">${day.num}</div>
+                    <div class="flex-1 text-center px-0.5 ${isToday ? 'text-teal-400' : 'text-zinc-200'}">
+                        <div class="font-semibold">${dayLabel}</div>
                         <div class="text-[8px] text-emerald-400/90 mt-0.5">${nextAvail}</div>
                     </div>
                 `;
@@ -764,10 +778,10 @@
 
             html += `</div>`;
 
-            // Main body: time gutter + day columns with absolute events
+            // Main body: time gutter + 5 day columns that share width (no h-scroll)
             html += `
-                <div class="flex overflow-x-auto -mx-1 px-1 pb-1 w-full max-w-full">
-                    <!-- Time gutter -->
+                <div class="flex w-full -mx-1 px-1 pb-1">
+                    <!-- Time gutter (fixed) -->
                     <div class="w-[40px] flex-shrink-0 text-[10px] text-zinc-400 font-mono border-r border-zinc-800 pr-1">
             `;
 
@@ -778,7 +792,9 @@
 
             html += `</div>`;
 
-            // Day columns
+            // 5 day columns in a flex row that fills remaining space
+            html += `<div class="flex-1 flex">`;
+
             days.forEach(day => {
                 const dayEvents = byDate[day.key] || [];
                 const allDayEvents = allDayByDate[day.key] || [];
@@ -786,23 +802,14 @@
 
                 const thisLayout = layoutByDay[day.key];
                 const thisNumLanes = thisLayout.numLanes;
-                // More mobile-friendly column sizing: smaller base + gentler growth + hard cap
-                const baseCol = 50;
-                const growth = 12;
-                const maxCol = 78;
-                const thisMinWidth = Math.min(Math.max(baseCol, baseCol + (thisNumLanes - 1) * growth), maxCol);
 
                 // Calculate density for shading
                 const density = calculateHourDensity(dayEvents);
-                const nextAvailable = getNextAvailableText(dayEvents);
-
-                // Add next available badge in header (we'll inject it via a second pass or accept that headers are static for now)
-                // For simplicity, we'll enhance the header row in a follow-up small edit if needed.
 
                 html += `
                     <div class="day-column flex-1 relative border-l border-zinc-700 bg-zinc-950 overflow-hidden"
                          data-date="${day.key}"
-                         style="min-width: ${thisMinWidth}px; height: ${columnHeight}px; ${isToday ? 'box-shadow: inset 0 0 0 1px rgb(52 211 153 / 0.3)' : ''}">
+                         style="height: ${columnHeight}px; ${isToday ? 'box-shadow: inset 0 0 0 1px rgb(52 211 153 / 0.3)' : ''}">
                 `;
 
                 // Hour rows with density-based background shading
@@ -817,7 +824,7 @@
                     html += `<div class="absolute left-0 right-0 ${shade}" style="top: ${top}px; height: ${HOUR_HEIGHT}px; border-top: 1px solid rgba(63,63,70,0.5)"></div>`;
                 });
 
-                // Subtle vertical lines for hour separation (on top of shading)
+                // Subtle vertical lines for hour separation
                 for (let i = 1; i < TOTAL_HOURS; i++) {
                     html += `<div class="absolute left-0 right-0 border-t border-zinc-800/60 pointer-events-none" style="top: ${i * HOUR_HEIGHT}px"></div>`;
                 }
@@ -833,7 +840,7 @@
                     html += `<div class="absolute left-0 right-0 top-0 z-10 bg-zinc-900/85 px-0.5 pt-0.5" style="max-height: 38px; overflow:hidden;">${adHtml}</div>`;
                 }
 
-                // Timed events as duration-spanning, side-by-side bubbles
+                // Timed events as duration-spanning, side-by-side bubbles (lanes subdivide the column)
                 const layout = thisLayout;
 
                 layout.events.forEach((ev, idx) => {
@@ -855,12 +862,12 @@
                     const gapPx = 2.5;
                     const hex = getEventColorHex(ev.colorId);
 
-                    // Smarter label for narrow lanes
+                    // Smarter label for narrow lanes (5-day view is compact)
                     let label = ev.summary || '';
-                    if (thisNumLanes >= 3 && label.length > 11) label = label.slice(0, 10) + '…';
-                    else if (label.length > 16) label = label.slice(0, 15) + '…';
+                    if (thisNumLanes >= 3 && label.length > 10) label = label.slice(0, 9) + '…';
+                    else if (label.length > 14) label = label.slice(0, 13) + '…';
 
-                    const showTime = height > 38 && thisNumLanes <= 2;
+                    const showTime = height > 36 && thisNumLanes <= 2;
                     const timeLine = showTime ? `<div class="opacity-80 text-[8px] leading-none mt-0.5">${ev.time}</div>` : '';
 
                     html += `
@@ -876,10 +883,10 @@
                 html += `</div>`; // close day column
             });
 
-            html += `
-                </div> <!-- end flex body -->
+            html += `</div></div>`; // close days flex + body flex
 
-                <!-- Compact legend + tips -->
+            // Compact legend + tips
+            html += `
                 <div class="mt-3 px-1 text-[9px] text-zinc-500 flex flex-wrap gap-x-4 gap-y-1">
                     <span>Tap empty space to book</span>
                     <span>Tap colored block for details</span>
@@ -895,7 +902,7 @@
 
             hostEl.innerHTML = html;
 
-            // === Post-render enhancements (click handlers, current time, swipe) ===
+            // === Post-render enhancements (click handlers, current time, swipe for 5-day nav) ===
 
             // 1. Make day columns clickable for pre-filling time slots
             const dayColumns = hostEl.querySelectorAll('.day-column');
@@ -904,7 +911,6 @@
                 if (!day) return;
 
                 col.addEventListener('click', (e) => {
-                    // Ignore clicks on actual event bubbles
                     if (e.target.closest('.event-bubble')) return;
 
                     const rect = col.getBoundingClientRect();
@@ -912,7 +918,6 @@
                     const hourIndex = Math.floor(clickY / HOUR_HEIGHT);
                     const clickedHour = GRID_START_HOUR + hourIndex;
 
-                    // Round to nearest 15 minutes for practical booking
                     const minutes = Math.round(((clickY % HOUR_HEIGHT) / HOUR_HEIGHT) * 60 / 15) * 15;
 
                     const yyyymmdd = day.key.replace(/-/g, '');
@@ -928,13 +933,12 @@
                 bubble.addEventListener('click', (e) => {
                     e.stopImmediatePropagation();
                     const evId = bubble.dataset.eventId;
-                    // Find the original event data
                     const ev = events.find(e => e.id === evId) || {};
                     showEventModal(ev);
                 });
             });
 
-            // 3. Add current time indicator if today is in this week
+            // 3. Add current time indicator if today is in the current 5-day view
             const now = new Date();
             const nowKey = formatYMD(now);
             const todayCol = hostEl.querySelector(`[data-date="${nowKey}"]`);
@@ -959,22 +963,22 @@
                 }
             }
 
-            // 4. Add swipe support for week navigation
+            // 4. Swipe on the calendar area to navigate 5-day blocks (left = next, right = prev)
             let touchStartX = 0;
-            const gridBody = hostEl.querySelector('.flex.overflow-x-auto');
-            if (gridBody) {
-                gridBody.addEventListener('touchstart', (e) => {
+            const swipeArea = hostEl.querySelector('.bg-zinc-950') || hostEl;
+            if (swipeArea) {
+                swipeArea.addEventListener('touchstart', (e) => {
                     touchStartX = e.changedTouches[0].screenX;
                 }, { passive: true });
 
-                gridBody.addEventListener('touchend', (e) => {
+                swipeArea.addEventListener('touchend', (e) => {
                     const touchEndX = e.changedTouches[0].screenX;
                     const diff = touchStartX - touchEndX;
                     if (Math.abs(diff) > 60) {
                         if (diff > 0) {
-                            changeWeek(1);   // swipe left → next week
+                            changeCalendar(1);  // swipe left → next 5 days
                         } else {
-                            changeWeek(-1);  // swipe right → previous week
+                            changeCalendar(-1); // swipe right → previous 5 days (clamped)
                         }
                     }
                 }, { passive: true });
