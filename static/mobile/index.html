@@ -326,7 +326,6 @@
                         : `your ${data.num_massages} ${dur} ${data.massage_type || ''} massages`);
 
                 let msg = `Hi ${data.name}, thank you for choosing SoCo Spa! Here is your reservation confirmation for ${displayTime} on ${displayDate} for ${phrase}. \n\nOur location is: 115 Willbrook Blvd., Suite E, Pawleys Island, SC 29585. We are looking forward to seeing you!`;
-                if (data.notes) msg += `\n\nNotes: ${data.notes}`;
 
                 document.getElementById('preview-message').textContent = msg;
 

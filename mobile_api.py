@@ -158,8 +158,8 @@ def create_booking(request: BookingRequest):
             DATE=display_date,
             CONFIRMATION_DETAILS=confirmation_details,
         )
-        if request.notes.strip():
-            full_message += f"\n\nNotes for therapist: {request.notes.strip()}"
+        # Notes are *not* included in the customer SMS (they are for internal use only).
+        # They are stored in the calendar description and used as a prefix on the event title.
 
         # Determine color:
         # Sage for all 2-person massages (couples or exactly 2 massages)

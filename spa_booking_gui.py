@@ -222,9 +222,8 @@ if submitted:
         CONFIRMATION_DETAILS=confirmation_details,
     )
 
-    # Append notes if provided (so the receptionist can copy everything at once)
-    if notes.strip():
-        full_message += f"\n\nNotes for therapist: {notes.strip()}"
+    # Notes are intentionally *not* appended to the customer-facing SMS message.
+    # They are for internal/staff use only (stored in calendar description + title prefix).
 
     # Build title and color
     num_massages = int(num_massages)  # ensure int
