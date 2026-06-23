@@ -241,6 +241,70 @@ All can be set in `.env` or the shell environment (only needed for Google):
 - **Time shows wrong**: Input uses 24-hour time; output is rendered in America/New_York.
 - **No browser opens for login**: Run on a machine with a browser, or set up the token.json on another machine and copy it over.
 
+## Local Network Access (Phone on Same Home Wi-Fi)
+
+This is the easiest way to use the mobile booking tool when your phone and computer are on the same home network.
+
+### 1. Start the server
+
+Use the helper script (recommended):
+
+```bash
+./start-server.sh
+```
+
+It will print the URLs you can use:
+
+```
+Starting SoCo Spa Mobile API...
+→ This Mac (Safari):   http://localhost:8000/mobile/
+→ Phone on same Wi-Fi: http://192.168.1.42:8000/mobile/
+```
+
+(Or run the command manually:)
+
+```bash
+uvicorn mobile_api:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 2. Find your Mac's IP (if not printed)
+
+```bash
+ipconfig getifaddr en0     # usually Wi-Fi
+# or
+ipconfig getifaddr en1
+```
+
+### 3. Open on your iPhone
+
+1. Make sure your iPhone is on the **same Wi-Fi** network.
+2. Open **Safari** and go to the LAN URL, e.g.:
+   ```
+   http://192.168.1.42:8000/mobile/
+   ```
+3. (Recommended) Tap **Share → Add to Home Screen** so it feels like a real app.
+
+### 4. macOS Firewall (common cause of "connection refused")
+
+- Go to **System Settings → Network → Firewall**.
+- Turn it **off** temporarily to test.
+- Or allow the connection when macOS prompts: "Do you want the application 'python' to accept incoming network connections?" → **Allow**.
+- Or use Terminal:
+
+```bash
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$(pwd)/.venv/bin/python" --unblockapp
+```
+
+### 5. iPhone Wi-Fi Settings
+
+If you still can't connect:
+- Go to **Settings → Wi-Fi → [your network] (i)**.
+- Turn **off** "Private Wi-Fi Address".
+
+**Note:** The server already binds to `0.0.0.0`, so no code change is required.
+
+You can run the Cloudflare tunnel in a second terminal at any time for remote access (see section below).
+
 ## Accessing the Mobile App from iPhone (Remote Access)
 
 The phone-friendly version (`mobile_api.py`) can be accessed from your iPhone even when you're not on the same Wi-Fi using **Cloudflare Tunnel** (free and easy).

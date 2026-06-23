@@ -5,10 +5,16 @@ This provides clean endpoints that a phone-optimized web app (or future chatbot/
 can call. All the important business logic (conflict checking, title generation, etc.)
 remains in spa_reservation.py.
 
-Run locally:
+Run locally (also works for phones on the same Wi-Fi):
+    ./start-server.sh
+    # or
     uvicorn mobile_api:app --reload --host 0.0.0.0 --port 8000
 
-For remote access:
+Local network (phone on same home Wi-Fi):
+- Find your Mac's IP: ipconfig getifaddr en0
+- On phone: http://<mac-ip>:8000/mobile/
+
+For remote access (when away from home):
 - Use Cloudflare Tunnel: cloudflared tunnel --url http://localhost:8000
 - Then access: https://your-tunnel.trycloudflare.com/mobile/
 

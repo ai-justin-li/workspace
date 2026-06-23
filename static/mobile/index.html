@@ -387,34 +387,78 @@
             if (!msgEl) return;
 
             const text = msgEl.textContent || msgEl.innerText || '';
+            const originalText = btn.textContent;
 
-            navigator.clipboard.writeText(text).then(() => {
-                const originalText = btn.textContent;
+            function showSuccess() {
                 btn.textContent = 'Copied!';
                 btn.style.backgroundColor = '#166534'; // green feedback
-
                 setTimeout(() => {
                     btn.textContent = originalText;
                     btn.style.backgroundColor = '';
                 }, 1500);
-            }).catch(() => {
-                // Fallback for older browsers or when clipboard API is blocked
+            }
+
+            function fallbackCopy() {
                 const textarea = document.createElement('textarea');
                 textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                textarea.style.top = '-9999px';
                 document.body.appendChild(textarea);
+
+                // iOS / PWA friendly selection
+                textarea.focus();
                 textarea.select();
+                textarea.setSelectionRange(0, textarea.value.length);
+
                 try {
-                    document.execCommand('copy');
-                    const originalText = btn.textContent;
-                    btn.textContent = 'Copied!';
-                    setTimeout(() => {
-                        btn.textContent = originalText;
-                    }, 1500);
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    if (successful) {
+                        showSuccess();
+                    } else {
+                        // Last resort for PWA / iOS: select the message
+                        const preview = document.getElementById('preview-message');
+                        if (preview) {
+                            const range = document.createRange();
+                            range.selectNodeContents(preview);
+                            const sel = window.getSelection();
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }
+                        alert('Copy failed. The message is selected — long-press the text and choose Copy.');
+                    }
                 } catch (err) {
-                    alert('Copy failed. Please select and copy manually.');
+                    document.body.removeChild(textarea);
+                    // Last resort for PWA / iOS: select the message so user can tap Copy from the system menu
+                    const preview = document.getElementById('preview-message');
+                    if (preview) {
+                        const range = document.createRange();
+                        range.selectNodeContents(preview);
+                        const sel = window.getSelection();
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                    alert('Copy failed. The message is selected — long-press the text and choose Copy.');
                 }
-                document.body.removeChild(textarea);
-            });
+            }
+
+            // Use modern API only when available in a secure context.
+            // When running as a PWA over plain http://<lan-ip>, navigator.clipboard
+            // is either unavailable or will reject. Fall back gracefully.
+            const canUseClipboardAPI =
+                navigator.clipboard &&
+                typeof navigator.clipboard.writeText === 'function' &&
+                window.isSecureContext;
+
+            if (canUseClipboardAPI) {
+                navigator.clipboard.writeText(text)
+                    .then(showSuccess)
+                    .catch(fallbackCopy);
+            } else {
+                fallbackCopy();
+            }
         }
 
         window.onload = function() {
